@@ -150,6 +150,50 @@ Configurable in `.env`:
 | `MAX_DAILY_LOSS_PCT` | 3% | Circuit breaker — halts all new trades for the day |
 | Minimum confidence | 0.55 | Low-conviction LLM calls are ignored, not acted on |
 
+## Options Trading
+
+Built for this hackathon's **Options Alpha Agents** track. The agent can propose
+exactly two **defined-risk, income-generating** options strategies — nothing
+else:
+
+- **Covered call** — sell a call against 100+ shares you already hold.
+- **Cash-secured put** — sell a put fully backed by cash on hand to buy 100
+  shares if assigned.
+
+**Why only defined-risk strategies:** naked calls, uncovered puts, spreads,
+and straddles are permanently out of scope — not just unimplemented, but
+explicitly forbidden. This is enforced twice: the LLM's prompt forbids
+proposing anything else, and `OptionsRiskManager` independently re-verifies
+eligibility (100+ shares held, or cash ≥ strike × 100) and rejects any action
+string outside the two allowed strategies, regardless of what the LLM
+proposes. Alpaca's own order API has no naked-vs-covered distinction — this
+app's risk manager is the only thing enforcing it.
+
+Candidates are picked from Alpaca's live option chain, targeting 30–45 days
+to expiration and a delta in the 0.25–0.35 band (a common "sell premium,
+stay defined-risk" heuristic), with the closest-to-target-delta contract
+chosen and rejected/blocked trades logged with the reason, same as the stock
+side.
+
+**CLI:**
+
+```bash
+python main.py options-run --dry-run                    # decisions only
+python main.py options-run --symbols AAPL,MSFT           # override the watchlist
+python main.py options-loop --interval 3600               # continuous, hourly is plenty given the 30-45 DTE target
+```
+
+**Dashboard:** open the **🧾 Options** tab for open option positions, a run
+button (dry-run on by default), and the options decision log.
+
+Extra risk controls, configurable in `.env`:
+
+| Control | Default | Purpose |
+|---|---|---|
+| `OPTIONS_WATCHLIST` | same as `WATCHLIST` | Tickers the options agent is allowed to trade |
+| `MAX_OPTIONS_COLLATERAL_PCT` | 25% of equity | Caps total cash tied up across all open cash-secured puts |
+| `MAX_OPEN_OPTION_POSITIONS` | 3 | Caps concurrent option positions |
+
 ## Project structure
 
 ```
@@ -161,11 +205,16 @@ Configurable in `.env`:
 │   ├── indicators.py           # SMA/EMA/RSI/MACD/volatility
 │   ├── llm_agent.py             # Gemini decision engine (structured JSON output)
 │   ├── risk_manager.py          # deterministic position sizing & limits
-│   ├── trading_agent.py         # orchestrates the full decision cycle
-│   └── logger.py                # JSONL decision log
+│   ├── trading_agent.py         # orchestrates the full stock decision cycle
+│   ├── options_client.py        # Alpaca options chain data + order wrapper
+│   ├── options_strategy.py      # covered call / cash-secured put candidate selection (pure, testable)
+│   ├── options_trading_agent.py # orchestrates the full options decision cycle
+│   └── logger.py                # JSONL decision log (shared by stock + options)
 ├── tests/
 │   ├── test_indicators.py
-│   └── test_risk_manager.py
+│   ├── test_risk_manager.py
+│   ├── test_options_strategy.py
+│   └── test_options_risk_manager.py
 ├── requirements.txt
 └── .env.example
 ```
@@ -178,6 +227,11 @@ Configurable in `.env`:
 - The LLM's output is always structured (enforced Pydantic `response_schema`),
   never free text parsed with regex, so decisions can't silently fail to parse.
 - Every rejected trade is logged with the reason, not just the executed ones.
+- Options trading is restricted to exactly two defined-risk strategies —
+  Alpaca's API itself does not distinguish covered from naked risk tiers, so
+  this app's own `OptionsRiskManager` is the sole safety guarantee,
+  independently re-verifying eligibility on every trade regardless of what
+  the LLM proposes.
 
 ## Built with
 
