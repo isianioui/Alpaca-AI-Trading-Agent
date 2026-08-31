@@ -1,0 +1,14 @@
+{
+  "_comment": "Optional: use this to also drive your Alpaca paper account via natural language from Claude Desktop, Claude Code, or Cursor, using Alpaca's official hosted MCP server. Copy the relevant block into your MCP client's config. See https://github.com/alpacahq/alpaca-mcp-server for full setup.",
+
+  "mcpServers": {
+    "alpaca-trading-paper": {
+      "type": "http",
+      "url": "https://paper-api.alpaca.markets/mcp",
+      "auth": {
+        "API_KEY_ID": "YOUR_ALPACA_PAPER_API_KEY",
+        "API_SECRET_KEY": "YOUR_ALPACA_PAPER_SECRET_KEY"
+      }
+    }
+  }
+}
