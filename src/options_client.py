@@ -23,6 +23,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus, ContractType, OrderSide, PositionIntent, TimeInForce
 from alpaca.trading.requests import GetOptionContractsRequest, MarketOrderRequest
 
+from src import alpaca_cli
 from src.options_strategy import parse_occ_symbol, select_best_candidate
 
 CANDIDATE_FETCH_DTE_MIN = 25
@@ -50,6 +51,7 @@ class OptionsClient:
         self.api_key = api_key or os.getenv("ALPACA_API_KEY")
         self.secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
         self.paper = paper if paper is not None else os.getenv("ALPACA_PAPER", "true").lower() == "true"
+        self.execution_backend = os.getenv("EXECUTION_BACKEND", "cli").lower()
 
         if not self.api_key or not self.secret_key:
             raise ValueError(
@@ -192,7 +194,15 @@ class OptionsClient:
         (opening a short covered call or cash-secured put) -- the signature stays
         generic for testability. Alpaca's OrderRequest requires `side` even when
         `position_intent` is also set, so both must always be passed together.
+
+        Routed through Alpaca's official CLI by default (EXECUTION_BACKEND=cli
+        in .env) -- this is the live order-execution mechanism that satisfies
+        the hackathon's CLI requirement. Set EXECUTION_BACKEND=sdk to fall back
+        to the direct alpaca-py SDK call below.
         """
+        if self.execution_backend == "cli":
+            return alpaca_cli.submit_option_order(contract_symbol, qty, side, position_intent)
+
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
         order_request = MarketOrderRequest(
             symbol=contract_symbol,
@@ -212,5 +222,8 @@ class OptionsClient:
         }
 
     def close_option_position(self, contract_symbol: str) -> dict:
+        if self.execution_backend == "cli":
+            return alpaca_cli.close_option_position(contract_symbol)
+
         order = self.trading_client.close_position(contract_symbol)
         return {"symbol": contract_symbol, "status": "closed", "order_id": str(order.id)}

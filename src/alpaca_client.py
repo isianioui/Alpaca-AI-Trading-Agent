@@ -22,6 +22,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
+from src import alpaca_cli
+
 
 @dataclass
 class AccountSnapshot:
@@ -50,6 +52,7 @@ class AlpacaClient:
         self.api_key = api_key or os.getenv("ALPACA_API_KEY")
         self.secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY")
         self.paper = paper if paper is not None else os.getenv("ALPACA_PAPER", "true").lower() == "true"
+        self.execution_backend = os.getenv("EXECUTION_BACKEND", "cli").lower()
 
         if not self.api_key or not self.secret_key:
             raise ValueError(
@@ -134,7 +137,16 @@ class AlpacaClient:
     # Orders
     # ------------------------------------------------------------------ #
     def submit_market_order(self, symbol: str, qty: float, side: str) -> dict:
-        """side must be 'buy' or 'sell'."""
+        """side must be 'buy' or 'sell'.
+
+        Routed through Alpaca's official CLI by default (EXECUTION_BACKEND=cli
+        in .env) -- this is the live order-execution mechanism that satisfies
+        the hackathon's CLI requirement. Set EXECUTION_BACKEND=sdk to fall back
+        to the direct alpaca-py SDK call below.
+        """
+        if self.execution_backend == "cli":
+            return alpaca_cli.submit_market_order(symbol, qty, side)
+
         order_side = OrderSide.BUY if side.lower() == "buy" else OrderSide.SELL
         order_request = MarketOrderRequest(
             symbol=symbol,
@@ -152,5 +164,8 @@ class AlpacaClient:
         }
 
     def close_position(self, symbol: str) -> dict:
+        if self.execution_backend == "cli":
+            return alpaca_cli.close_position(symbol)
+
         order = self.trading_client.close_position(symbol)
         return {"symbol": symbol, "status": "closed", "order_id": str(order.id)}

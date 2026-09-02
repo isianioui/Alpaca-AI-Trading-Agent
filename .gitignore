@@ -9,3 +9,4 @@ data/*.db
 .DS_Store
 *.egg-info/
 .pytest_cache/
+bin/
