@@ -134,6 +134,15 @@ class AlpacaClient:
             for p in positions
         ]
 
+    def get_market_clock(self) -> dict:
+        clock = self.trading_client.get_clock()
+        return {
+            "is_open": clock.is_open,
+            "timestamp": clock.timestamp,
+            "next_open": clock.next_open,
+            "next_close": clock.next_close,
+        }
+
     def get_open_orders(self) -> list[dict]:
         orders = self.trading_client.get_orders()
         return [
