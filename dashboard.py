@@ -24,6 +24,7 @@ import html
 import json
 import os
 import re
+from datetime import date
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,6 +33,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from src import dashboard_ui as ui
+from src import payoff as payoff_calc
 from src import trade_history
 from src.alpaca_client import AlpacaClient
 from src.cycle_summary import compute_activity_counters, summarize_latest_cycle
@@ -52,7 +54,7 @@ NAVY, NAVY_MID, ICE, GREEN, RED, OFFWHITE, MUTED_ON_DARK = (
 
 NAV_GROUPS = [
     ("LIVE", [("Overview", "🏠"), ("Positions", "📊"), ("Options", "🧾")]),
-    ("RECORDS", [("Decision History", "🧠"), ("Performance", "📈"), ("Strategy", "🧭")]),
+    ("RECORDS", [("Decisions", "🧠"), ("Performance", "📈"), ("Methodology", "🧭")]),
     ("ABOUT", [("Docs", "📄"), ("Settings", "⚙️")]),
 ]
 
@@ -285,32 +287,83 @@ def _prep_stock_position(p: dict) -> dict:
     }
 
 
-def _prep_option_position(p: dict) -> dict:
-    opening = find_opening_decision(p["underlying_symbol"], contract_symbol=p["symbol"])
-    if p["option_type"] == "put":
-        collateral_label = "Collateral Committed"
-        collateral_value = f"${p['strike'] * 100 * abs(p['qty']):,.2f}"
+def _prep_option_row(p: dict, stock_positions_by_symbol: dict, client: AlpacaClient) -> dict:
+    """Shapes one open option position into everything the dense positions
+    table needs -- payoff math comes from src/payoff.py's pure functions
+    (unit-tested in tests/test_payoff.py), fed with the exact same strike
+    and contract count the OptionsRiskManager used to gate this trade at
+    entry, plus the position's actual live avg_entry_price (premium) --
+    never a new/invented risk number. Missing live data (an underlying
+    quote, or a covered call's stock cost basis) degrades to an honest
+    'pending' state in the row rather than a fabricated figure."""
+    underlying = p["underlying_symbol"]
+    option_type = p["option_type"]
+    strategy = "covered_call" if option_type == "call" else "cash_secured_put"
+    strategy_label = "Covered Call" if option_type == "call" else "Cash-Secured Put"
+    note = (
+        f"wins if price stays below ${p['strike']:,.2f}" if option_type == "call"
+        else f"wins if price stays above ${p['strike']:,.2f}"
+    )
+
+    opening = find_opening_decision(underlying, contract_symbol=p["symbol"])
+    stock_pos = stock_positions_by_symbol.get(underlying)
+
+    current_price = None
+    if stock_pos is not None:
+        current_price = stock_pos["current_price"]
     else:
-        collateral_label = "Backed By"
-        collateral_value = f"{int(100 * abs(p['qty']))} shares"
-    return {
+        try:
+            quote = client.get_latest_quote(underlying)
+            current_price = (quote["bid"] + quote["ask"]) / 2
+        except Exception:
+            current_price = None
+
+    exp_date = date.fromisoformat(p["expiration"])
+    dte = (exp_date - date.today()).days
+
+    premium = p["avg_entry_price"]
+    contracts = abs(p["qty"])
+    collected = premium * 100 * contracts
+
+    cost_basis = stock_pos["avg_entry_price"] if (strategy == "covered_call" and stock_pos is not None) else None
+    can_compute_payoff = current_price is not None and (strategy == "cash_secured_put" or cost_basis is not None)
+
+    row = {
+        "symbol": underlying,
         "contract_symbol": p["symbol"],
-        "underlying": p["underlying_symbol"],
-        "option_type": p["option_type"],
+        "status_label": "FILLED",
+        "strategy_label": strategy_label,
+        "note": note,
         "strike": p["strike"],
+        "option_type": option_type,
+        "dte": dte,
         "expiration": p["expiration"],
-        "qty": p["qty"],
-        "entry": p["avg_entry_price"],
-        "market_value": p["market_value"],
-        "upl": p["unrealized_pl"],
-        "uplpc": p.get("unrealized_plpc", 0.0),
-        "collateral_label": collateral_label,
-        "collateral_value": collateral_value,
-        "opened": opening.get("timestamp", "")[:10] if opening else None,
+        "collected": collected,
+        "unrealized": p["unrealized_pl"],
         "reasoning": opening.get("reasoning") if opening else None,
         "confidence": opening.get("confidence", 0) if opening else 0,
         "risk_note": opening.get("risk_note") if opening else None,
+        "current_price": current_price,
+        "room_dollar": None,
+        "room_pct": None,
+        "max_loss": None,
+        "breakeven": None,
+        "payoff_points": None,
     }
+
+    if current_price is not None:
+        safe = current_price < p["strike"] if option_type == "call" else current_price > p["strike"]
+        distance = abs(current_price - p["strike"])
+        row["room_dollar"] = distance if safe else -distance
+        row["room_pct"] = (row["room_dollar"] / p["strike"]) if p["strike"] else 0.0
+
+    if can_compute_payoff:
+        row["max_loss"] = payoff_calc.max_loss(strategy, p["strike"], premium, contracts, cost_basis=cost_basis)
+        row["breakeven"] = payoff_calc.breakeven(strategy, p["strike"], premium, cost_basis=cost_basis)
+        row["payoff_points"] = payoff_calc.payoff_points(
+            strategy, p["strike"], premium, contracts, cost_basis=cost_basis)
+
+    return row
 
 
 def _prep_decision_record(d: dict) -> dict:
@@ -605,8 +658,10 @@ def render_view_positions(stock_positions: list[dict], option_positions: list[di
     embed(ui.render_stock_position_cards([_prep_stock_position(p) for p in stock_positions]))
 
     section_divider()
-    section_title(f"Option Positions ({len(option_positions)})", "🧾", level="md")
-    embed(ui.render_option_position_cards([_prep_option_position(p) for p in option_positions]))
+    section_title(f"Open Option Positions ({len(option_positions)})", "🧾", level="md")
+    stock_positions_by_symbol = {p["symbol"]: p for p in stock_positions}
+    embed(ui.render_option_positions_table(
+        [_prep_option_row(p, stock_positions_by_symbol, client) for p in option_positions]))
 
     section_divider()
     section_title("Price Chart", "📊", level="md")
@@ -615,11 +670,16 @@ def render_view_positions(stock_positions: list[dict], option_positions: list[di
         render_price_chart(client, symbol)
 
 
-def render_view_options(client: AlpacaClient, options_client: OptionsClient, option_positions: list[dict]) -> None:
+def render_view_options(
+    client: AlpacaClient, options_client: OptionsClient,
+    stock_positions: list[dict], option_positions: list[dict],
+) -> None:
     page_header("Options", "Covered calls & cash-secured puts — the only two strategies this agent ever proposes.")
 
     section_title(f"Open Option Positions ({len(option_positions)})", "🧾", level="md")
-    embed(ui.render_option_position_cards([_prep_option_position(p) for p in option_positions]))
+    stock_positions_by_symbol = {p["symbol"]: p for p in stock_positions}
+    embed(ui.render_option_positions_table(
+        [_prep_option_row(p, stock_positions_by_symbol, client) for p in option_positions]))
 
     section_divider()
     section_title("Run Options Agent", "⚙️", level="md")
@@ -670,7 +730,8 @@ def _decision_bucket(d: dict) -> str:
 
 
 def render_view_decision_history() -> None:
-    page_header("Decision History", "Every decision the agent has ever logged — approved, rejected, executed, or held.")
+    page_header("Decisions", "Every decision the agent has ever logged — approved, rejected, executed, or held. "
+                              "Showing what the agent chose NOT to do is as important as showing what it did.")
 
     all_decisions = [d for d in load_decisions() if d.get("record_type") != "exit_engine_summary"]
     if not all_decisions:
@@ -740,7 +801,7 @@ def render_view_decision_history() -> None:
 
 
 def render_view_strategy() -> None:
-    page_header("Strategy", "How this agent actually decides — the real pipeline, step by step.")
+    page_header("Methodology", "How this agent actually decides — the real pipeline, step by step.")
     embed(ui.render_how_it_decides())
 
 
@@ -945,12 +1006,12 @@ def main() -> None:
     elif view == "Positions":
         render_view_positions(stock_positions, option_positions, client)
     elif view == "Options":
-        render_view_options(client, options_client, option_positions)
-    elif view == "Decision History":
+        render_view_options(client, options_client, stock_positions, option_positions)
+    elif view == "Decisions":
         render_view_decision_history()
     elif view == "Performance":
         render_view_performance()
-    elif view == "Strategy":
+    elif view == "Methodology":
         render_view_strategy()
     elif view == "Docs":
         render_view_docs(client)
@@ -958,7 +1019,7 @@ def main() -> None:
         render_view_settings(client, options_client)
 
     section_divider()
-    embed(ui.render_footer())
+    embed(ui.render_footer(client.paper))
 
 
 if __name__ == "__main__":

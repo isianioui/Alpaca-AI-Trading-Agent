@@ -407,73 +407,246 @@ def render_stock_position_cards(positions: list[dict]) -> tuple[str, int]:
     return _doc(body, _POSITION_STYLE, TOGGLE_JS), container_h + 16
 
 
-def render_option_position_cards(positions: list[dict]) -> tuple[str, int]:
-    """positions: list of dicts with contract_symbol, underlying, option_type,
-    strike, expiration, qty, entry, market_value, upl, uplpc, collateral_label,
-    collateral_value, opened, reasoning, confidence, risk_note. Same
-    scroll-panel sizing strategy as render_stock_position_cards."""
-    if not positions:
-        body = _empty_state("No open option positions.")
-        return _doc(body, _POSITION_STYLE), 70
+# --------------------------------------------------------------------------- #
+# Open options positions -- dense trading-blotter table with an inline SVG
+# payoff-at-expiry sparkline per row. Replaces the old card layout: this
+# project only ever writes single-leg, short options (covered call,
+# cash-secured put), so the table is shaped around exactly those two rows
+# of math, not a generic multi-leg spread format.
+# --------------------------------------------------------------------------- #
+def _interp_pnl(points: list[tuple[float, float]], x: float) -> float:
+    """Linear interpolation so the 'now' marker on the sparkline sits at the
+    live underlying price even when that price doesn't land exactly on one
+    of payoff_points()'s grid points."""
+    pts = sorted(points)
+    if x <= pts[0][0]:
+        return pts[0][1]
+    if x >= pts[-1][0]:
+        return pts[-1][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= x <= x1:
+            if x1 == x0:
+                return y0
+            t = (x - x0) / (x1 - x0)
+            return y0 + t * (y1 - y0)
+    return pts[-1][1]
 
-    cards = []
-    for i, p in enumerate(positions):
-        tone = "positive" if p["upl"] >= 0 else "negative"
-        card_id = f"opt-{i}"
-        has_reasoning = bool(p.get("reasoning"))
-        strategy_label = "Covered Call" if p["option_type"] == "call" else "Cash-Secured Put"
-        credit_received = p["entry"] * 100 * abs(p["qty"])
-        cost_to_close = abs(p["market_value"])
 
-        stats = [
-            ("Strike", f"${p['strike']:,.2f}", ""),
-            ("Expiration", p["expiration"], ""),
-            ("Credit Received", f"${credit_received:,.2f}", ""),
-            (p["collateral_label"], p["collateral_value"], ""),
-            ("Cost to Close", f"${cost_to_close:,.2f}", ""),
-            ("Unrealized P&L", f"${p['upl']:,.2f} ({p['uplpc']:+.2%})", f"tone-{tone}"),
-            ("Opened", p.get("opened") or "—", ""),
-        ]
-        stat_html = "".join(
-            f'<div><div class="position-stat-label">{_esc(l)}</div>'
-            f'<div class="position-stat-value num {t}">{_esc(v)}</div></div>'
-            for l, v, t in stats
+def _svg_pts(pts: list[tuple[float, float]]) -> str:
+    return " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+
+
+def _build_payoff_svg(
+    points: list[tuple[float, float]], current_price: float, breakeven_price: float,
+    w: int = 172, h: int = 52, pad: float = 5,
+) -> str:
+    """Compact sparkline-style payoff-at-expiry chart: profit/loss shaded
+    green/red on either side of the breakeven crossing, a dashed zero-line,
+    and a 'now' marker at the live underlying price."""
+    prices = [p for p, _ in points]
+    pnls = [v for _, v in points]
+    pmin, pmax = min(prices), max(prices)
+    vmin, vmax = min(pnls), max(pnls)
+    if vmin == vmax:
+        vmin, vmax = vmin - 1, vmax + 1
+    if pmin == pmax:
+        pmin, pmax = pmin - 1, pmax + 1
+
+    def xf(p: float) -> float:
+        return pad + (p - pmin) / (pmax - pmin) * (w - 2 * pad)
+
+    def yf(v: float) -> float:
+        return h - pad - (v - vmin) / (vmax - vmin) * (h - 2 * pad)
+
+    baseline_y = yf(0)
+    curve = [(xf(p), yf(v)) for p, v in points]
+    neg = [(xf(p), yf(v)) for p, v in points if v <= 0]
+    pos = [(xf(p), yf(v)) for p, v in points if v >= 0]
+
+    parts = [
+        f'<line x1="{pad}" y1="{baseline_y:.1f}" x2="{w - pad}" y2="{baseline_y:.1f}" '
+        f'stroke="rgba(202,220,252,0.28)" stroke-width="1" stroke-dasharray="2,2"/>'
+    ]
+    if len(neg) >= 2:
+        poly = [(neg[0][0], baseline_y)] + neg + [(neg[-1][0], baseline_y)]
+        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(232,97,90,0.30)"/>')
+    if len(pos) >= 2:
+        poly = [(pos[0][0], baseline_y)] + pos + [(pos[-1][0], baseline_y)]
+        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(31,203,143,0.26)"/>')
+    parts.append(
+        f'<polyline points="{_svg_pts(curve)}" fill="none" stroke="{OFFWHITE}" '
+        f'stroke-width="1.5" stroke-linejoin="round"/>'
+    )
+
+    now_price = max(pmin, min(pmax, current_price))
+    now_x = xf(now_price)
+    now_y = yf(_interp_pnl(points, now_price))
+    parts.append(
+        f'<line x1="{now_x:.1f}" y1="{pad}" x2="{now_x:.1f}" y2="{h - pad}" '
+        f'stroke="{ICE}" stroke-width="1" stroke-dasharray="2,2"/>'
+    )
+    parts.append(f'<circle cx="{now_x:.1f}" cy="{now_y:.1f}" r="2.3" fill="{ICE}"/>')
+
+    if pmin <= breakeven_price <= pmax:
+        be_x = xf(breakeven_price)
+        parts.append(
+            f'<line x1="{be_x:.1f}" y1="{baseline_y - 3:.1f}" x2="{be_x:.1f}" y2="{baseline_y + 3:.1f}" '
+            f'stroke="{MUTED_ON_DARK}" stroke-width="1.5"/>'
         )
 
+    return f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" class="payoff-spark">{"".join(parts)}</svg>'
+
+
+_OPT_TABLE_STYLE = f"""
+.opt-table {{ font-size: 0.8rem; min-width: 1040px; }}
+.opt-head, .opt-row {{
+  display: grid;
+  grid-template-columns: 2fr 116px 128px 110px 100px 104px 108px 188px;
+  gap: 0.7rem; align-items: center;
+}}
+.opt-head {{
+  padding: 0 0.9rem 0.55rem 0.9rem; color: {MUTED_ON_DARK};
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  border-bottom: 1px solid rgba(202,220,252,0.12); position: sticky; top: 0;
+  background: {NAVY}; z-index: 1;
+}}
+.opt-row {{
+  padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 6px;
+  border-left: 3px solid {ICE}; background: rgba(30, 39, 97, 0.42);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}}
+.opt-cell.position {{ display: flex; flex-direction: column; gap: 3px; min-width: 0; }}
+.opt-symbol-row {{ display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }}
+.opt-symbol {{ font-weight: 800; color: {OFFWHITE}; font-size: 0.94rem; }}
+.opt-badge {{ font-size: 0.58rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }}
+.opt-badge.filled {{ background: rgba(31,203,143,0.15); color: {GREEN}; border: 1px solid rgba(31,203,143,0.4); }}
+.opt-strategy {{ font-size: 0.74rem; color: {MUTED_ON_DARK}; }}
+.opt-note {{ font-size: 0.72rem; color: {ICE}; opacity: 0.9; }}
+.opt-cell.strike {{ display: flex; flex-direction: column; gap: 4px; }}
+.opt-sell-badge {{
+  display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 0.08rem 0.4rem; border-radius: 999px; width: fit-content;
+  background: rgba(202,220,252,0.14); color: {ICE}; border: 1px solid rgba(202,220,252,0.4);
+}}
+.opt-cell.room {{ display: flex; flex-direction: column; gap: 2px; }}
+.opt-cell.room .pct {{ font-size: 0.7rem; color: {MUTED_ON_DARK}; }}
+.opt-cell.expires {{ display: flex; flex-direction: column; gap: 2px; }}
+.opt-cell.expires .date {{ font-size: 0.7rem; color: {MUTED_ON_DARK}; }}
+.opt-cell.num {{ font-weight: 700; }}
+.opt-toggle-row {{
+  padding: 0.3rem 0.9rem 0; cursor: pointer; font-size: 0.74rem; color: {ICE};
+  opacity: 0.85; user-select: none;
+}}
+.opt-toggle-row:hover {{ opacity: 1; }}
+.opt-toggle-row::before {{ content: '\\25B8  AI reasoning that opened this position'; display: inline-block; }}
+.opt-toggle-row.open::before {{ content: '\\25BE  AI reasoning that opened this position'; }}
+.opt-detail {{ max-height: 0; overflow: hidden; transition: max-height 0.3s ease; font-size: 0.82rem; color: {ICE}; line-height: 1.55; margin: 0 0.9rem 0.4rem 0.9rem; }}
+.opt-detail.open {{ max-height: 2000px; padding-top: 0.5rem; }}
+.opt-detail b {{ color: {OFFWHITE}; }}
+.payoff-spark {{ display: block; }}
+.opt-pending {{ font-size: 0.72rem; color: {MUTED_ON_DARK}; font-style: italic; }}
+"""
+
+_OPT_ROW_H = 112
+_OPT_DETAIL_H = 130
+_OPT_TABLE_CAP = 780
+
+
+def render_option_positions_table(rows: list[dict]) -> tuple[str, int]:
+    """rows: list of dicts, one per open option position -- all math (payoff
+    points, max loss, room to strike) is computed by dashboard.py from live
+    Alpaca data and src/payoff.py's pure functions; this function only lays
+    out already-shaped values, never computes risk figures itself:
+
+      symbol, contract_symbol, status_label, strategy_label, note, strike,
+      option_type, dte, expiration, collected, unrealized, reasoning,
+      confidence, risk_note, current_price, room_dollar, room_pct,
+      max_loss, breakeven, payoff_points (list[(price, pnl)] or None if the
+      underlying price / cost basis needed to compute it isn't available --
+      rendered as an honest 'pending' note, never a fabricated chart).
+    """
+    if not rows:
+        body = _empty_state("No open option positions.")
+        return _doc(body, _OPT_TABLE_STYLE), 70
+
+    header = (
+        '<div class="opt-head"><div>POSITION</div><div>STRIKE</div>'
+        '<div>ROOM TO STRIKE</div><div>EXPIRES</div><div>COLLECTED</div>'
+        '<div>MAX LOSS</div><div>UNREALIZED</div><div>PAYOFF AT EXPIRY</div></div>'
+    )
+    blocks = [header]
+    for i, r in enumerate(rows):
+        row_id = f"opt-row-{i}"
+        tone = "positive" if r["unrealized"] >= 0 else "negative"
+        unrealized_sign = "-" if r["unrealized"] < 0 else ""
+
+        if r.get("room_dollar") is not None:
+            room_tone = "positive" if r["room_dollar"] >= 0 else "negative"
+            room_html = (
+                f'<div class="num tone-{room_tone}">{"+" if r["room_dollar"] >= 0 else "-"}'
+                f'${abs(r["room_dollar"]):,.2f}</div><div class="pct">{r["room_pct"]:+.1%}</div>'
+            )
+        else:
+            room_html = '<div class="opt-pending">pending live quote</div>'
+
+        if r.get("max_loss") is not None:
+            max_loss_html = f'<div class="num">${r["max_loss"]:,.2f}</div>'
+        else:
+            max_loss_html = '<div class="opt-pending">pending</div>'
+
+        if r.get("payoff_points"):
+            payoff_html = _build_payoff_svg(r["payoff_points"], r["current_price"], r["breakeven"])
+        else:
+            payoff_html = '<div class="opt-pending">Not enough live data to chart yet.</div>'
+
+        has_reasoning = bool(r.get("reasoning"))
         toggle_html = ""
+        detail_html = ""
         if has_reasoning:
-            toggle_html = (
-                f'<div class="card-toggle" id="{card_id}-trigger" onclick="toggleCard(\'{card_id}\')">'
-                f'View reasoning that opened this position</div>'
-                f'<div class="card-detail" id="{card_id}">'
-                f'<div><b>Reasoning:</b> {_esc(p["reasoning"])}</div>'
-                f'<div style="margin-top:4px;"><b>Confidence:</b> {p.get("confidence", 0):.2f}</div>'
-                f'<div style="margin-top:4px;"><b>Risk note:</b> {_esc(p.get("risk_note") or "—")}</div>'
+            toggle_html = f'<div class="opt-toggle-row" id="{row_id}-trigger" onclick="toggleCard(\'{row_id}\')"></div>'
+            detail_html = (
+                f'<div class="opt-detail" id="{row_id}">'
+                f'<div><b>Reasoning:</b> {_esc(r["reasoning"])}</div>'
+                f'<div style="margin-top:4px;"><b>Confidence:</b> {r.get("confidence", 0):.2f}</div>'
+                f'<div style="margin-top:4px;"><b>Risk note:</b> {_esc(r.get("risk_note") or "—")}</div>'
                 f'</div>'
             )
 
-        cards.append(f"""
-        <div class="position-card sell animate-in" style="animation-delay:{i * 50}ms">
-          <div class="position-top">
-            <div>
-              <span class="position-symbol">{_esc(p['underlying'])} {_esc(p['option_type'].upper())}</span>
-              <div class="position-sub">{_esc(p['contract_symbol'])} &middot; {abs(p['qty']):g} contract(s)</div>
+        blocks.append(f"""
+        <div class="opt-row animate-in" style="animation-delay:{min(i, 10) * 40}ms">
+          <div class="opt-cell position">
+            <div class="opt-symbol-row">
+              <span class="opt-symbol">{_esc(r['symbol'])}</span>
+              <span class="opt-badge filled">{_esc(r['status_label'])}</span>
             </div>
-            <div class="position-badges">
-              <span class="position-badge sell">SELL (SHORT)</span>
-              <span class="position-badge strategy">{_esc(strategy_label)}</span>
-            </div>
+            <div class="opt-strategy">{_esc(r['strategy_label'])} &middot; {_esc(r['contract_symbol'])}</div>
+            <div class="opt-note">{_esc(r['note'])}</div>
           </div>
-          <div class="position-stats">{stat_html}</div>
-          {toggle_html}
+          <div class="opt-cell strike">
+            <div class="num">${r['strike']:,.2f} {_esc(r['option_type'].upper())}</div>
+            <span class="opt-sell-badge">SELL</span>
+          </div>
+          <div class="opt-cell room">{room_html}</div>
+          <div class="opt-cell expires">
+            <div class="num">{r['dte']}d</div>
+            <div class="date">{_esc(r['expiration'])}</div>
+          </div>
+          <div class="opt-cell num">${r['collected']:,.2f}</div>
+          <div class="opt-cell maxloss">{max_loss_html}</div>
+          <div class="opt-cell num tone-{tone}">{unrealized_sign}${abs(r['unrealized']):,.2f}</div>
+          <div class="opt-cell payoff">{payoff_html}</div>
         </div>
+        {toggle_html}
+        {detail_html}
         """)
 
-    option_card_h = 188  # taller than stock cards -- 7 stat pairs wrap to 2 rows
-    collapsed_total = len(positions) * option_card_h
-    container_h = min(680, collapsed_total + _POSITION_DETAIL_H)
-    body = f'<div class="scroll-panel" style="max-height:{container_h}px;">{"".join(cards)}</div>'
-    return _doc(body, _POSITION_STYLE, TOGGLE_JS), container_h + 16
+    collapsed_total = 46 + len(rows) * _OPT_ROW_H
+    container_h = min(_OPT_TABLE_CAP, collapsed_total + _OPT_DETAIL_H)
+    body = (
+        f'<div class="opt-table scroll-panel" style="max-height:{container_h}px; overflow-x:auto;">'
+        f'{"".join(blocks)}</div>'
+    )
+    return _doc(body, _OPT_TABLE_STYLE, TOGGLE_JS), container_h + 16
 
 
 # --------------------------------------------------------------------------- #
@@ -562,7 +735,7 @@ def render_decision_cards(records: list[dict]) -> tuple[str, int]:
 
 
 # --------------------------------------------------------------------------- #
-# Decision table -- dense, monospace, terminal-style rows (Decision History)
+# Decision table -- dense, monospace, terminal-style rows (Decisions page)
 # --------------------------------------------------------------------------- #
 _TABLE_STYLE = f"""
 .dec-table {{ font-size: 0.82rem; }}
@@ -611,7 +784,7 @@ def render_decision_table(records: list[dict]) -> tuple[str, int]:
     """Dense, terminal-style table -- one line per decision, click a row to
     expand its full reasoning/risk-note/indicators below it. Same fields as
     render_decision_cards, just laid out for scanning many rows at once
-    (Decision History's full log) instead of a handful of prominent cards."""
+    (the Decisions page's full log) instead of a handful of prominent cards."""
     if not records:
         body = _empty_state("No decisions match the current filters.")
         return _doc(body, _TABLE_STYLE), 70
@@ -734,14 +907,19 @@ def render_inline_alert(message: str, tone: str = "info") -> tuple[str, int]:
     return _doc(body, _ALERT_STYLE), 46 + lines * 20
 
 
-def render_footer() -> tuple[str, int]:
-    body = """
+def render_footer(is_paper: bool = True) -> tuple[str, int]:
+    status_line = (
+        "Paper trading only. Live, read-only account data &mdash; no real capital at risk."
+        if is_paper else
+        "&#9888; LIVE TRADING &mdash; real capital is at risk."
+    )
+    body = f"""
     <div class="app-footer">
       An autonomous, explainable paper-trading agent &mdash; Gemini reasons, a deterministic risk gate decides.<br/>
       Built for the Alpaca AI Trading Agents Hackathon
       (<a href="https://lablab.ai" target="_blank">lablab.ai</a>)
       &middot; <a href="https://github.com/isianioui/Alpaca-AI-Trading-Agent" target="_blank">GitHub repo</a><br/>
-      Paper trading only &mdash; no real capital at risk.
+      {status_line}
     </div>
     """
     return _doc(body, _FOOTER_STYLE), 90
