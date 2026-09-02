@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from src import trade_history
 from src.alpaca_client import AlpacaClient
 from src.indicators import build_feature_snapshot
 from src.llm_agent import LLMTradingAgent
@@ -100,6 +101,18 @@ class TradingAgent:
                     order_result = self.alpaca.submit_market_order(symbol, risk_result.qty, "buy")
                 elif decision.action == "sell":
                     order_result = self.alpaca.close_position(symbol)
+                    if order_result and current_position:
+                        trade_history.record_closed_trade(
+                            symbol=symbol,
+                            asset_class="stock",
+                            qty=current_position["qty"],
+                            entry_price=current_position["avg_entry_price"],
+                            exit_price=current_position["current_price"],
+                            realized_pnl=current_position["unrealized_pl"],
+                            realized_pnl_pct=current_position["unrealized_plpc"],
+                            reason="LLM_DECISION",
+                            trigger="llm_decision",
+                        )
 
             return {
                 "symbol": symbol,

@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from src import trade_history
 from src.alpaca_client import AlpacaClient
 from src.indicators import build_feature_snapshot
 from src.llm_agent import OptionsLLMAgent
@@ -147,6 +148,20 @@ class OptionsTradingAgent:
                     )
                 elif decision.action == "close_position" and current_option_position:
                     order_result = self.options.close_option_position(current_option_position["symbol"])
+                    if order_result:
+                        trade_history.record_closed_trade(
+                            symbol=symbol,
+                            asset_class="option",
+                            qty=current_option_position["qty"],
+                            entry_price=current_option_position["avg_entry_price"],
+                            exit_price=current_option_position.get(
+                                "current_price", current_option_position["avg_entry_price"]),
+                            realized_pnl=current_option_position["unrealized_pl"],
+                            realized_pnl_pct=current_option_position.get("unrealized_plpc", 0.0),
+                            reason="LLM_DECISION",
+                            trigger="llm_decision",
+                            contract_symbol=current_option_position["symbol"],
+                        )
 
             return {
                 "symbol": symbol,

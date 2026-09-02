@@ -11,6 +11,7 @@ Examples:
     python main.py options-run --dry-run           # one options cycle, decisions only
     python main.py options-run --symbols AAPL,MSFT  # covered call / cash-secured put only
     python main.py options-loop --interval 3600     # run continuously every hour
+    python main.py exit-check --dry-run             # deterministic stop-loss/take-profit sweep, no orders
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ from dotenv import load_dotenv
 
 from src import alpaca_cli
 from src.alpaca_cli import AlpacaCLIError
+from src.alpaca_client import AlpacaClient
+from src.exit_engine import run_exit_engine
+from src.options_client import OptionsClient
 from src.options_trading_agent import OptionsTradingAgent
 from src.trading_agent import TradingAgent
 
@@ -139,6 +143,27 @@ def cmd_options_run(args) -> None:
             print(f"  Order        : {r['order']}")
 
 
+def cmd_exit_check(args) -> None:
+    """Evaluate every open stock + option position against the deterministic
+    exit engine (stop-loss / take-profit / options profit-target / options
+    stop-multiple). No LLM call -- see src/exit_engine.py."""
+    alpaca = AlpacaClient()
+    options = OptionsClient(trading_client=alpaca.trading_client)
+
+    print(f"Running exit engine over all open positions (dry_run={args.dry_run})\n")
+    results = run_exit_engine(alpaca, options, dry_run=args.dry_run)
+
+    if not results:
+        print("No open positions to evaluate.")
+        return
+
+    for r in results:
+        marker = "CLOSE" if r["action"] == "CLOSE" else " hold"
+        print(f"[{marker}] {r['asset_class']:<6} {r['symbol']:<6} {r['reason']}")
+        if r["order"]:
+            print(f"          order: {r['order']}")
+
+
 def cmd_options_loop(args) -> None:
     watchlist = get_option_watchlist(args.symbols)
     print(f"Starting continuous options loop every {args.interval}s over: {watchlist}")
@@ -180,6 +205,11 @@ def main() -> None:
     p_options_run.add_argument("--symbols", type=str, default=None, help="Comma-separated tickers")
     p_options_run.add_argument("--dry-run", action="store_true", help="Decide but do not place orders")
     p_options_run.set_defaults(func=cmd_options_run)
+
+    p_exit_check = subparsers.add_parser(
+        "exit-check", help="Evaluate open positions against deterministic stop-loss/take-profit rules")
+    p_exit_check.add_argument("--dry-run", action="store_true", help="Evaluate only, do not place close orders")
+    p_exit_check.set_defaults(func=cmd_exit_check)
 
     p_options_loop = subparsers.add_parser("options-loop", help="Run the options agent continuously")
     p_options_loop.add_argument("--symbols", type=str, default=None)

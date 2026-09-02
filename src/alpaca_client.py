@@ -20,7 +20,7 @@ from alpaca.data.requests import StockBarsRequest, StockLatestQuoteRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.requests import GetPortfolioHistoryRequest, MarketOrderRequest
 
 from src import alpaca_cli
 
@@ -32,6 +32,17 @@ class AccountSnapshot:
     buying_power: float
     portfolio_value: float
     last_equity: float
+    created_at: Optional[datetime] = None
+    account_number: Optional[str] = None
+    status: Optional[str] = None
+    currency: Optional[str] = None
+    long_market_value: Optional[float] = None
+    short_market_value: Optional[float] = None
+    maintenance_margin: Optional[float] = None
+    options_buying_power: Optional[float] = None
+    options_trading_level: Optional[int] = None
+    daytrade_count: Optional[int] = None
+    pattern_day_trader: Optional[bool] = None
 
     @property
     def daily_pnl_pct(self) -> float:
@@ -74,7 +85,39 @@ class AlpacaClient:
             buying_power=float(acct.buying_power),
             portfolio_value=float(acct.portfolio_value),
             last_equity=float(acct.last_equity),
+            created_at=acct.created_at,
+            account_number=acct.account_number,
+            status=acct.status.value if acct.status else None,
+            currency=acct.currency,
+            long_market_value=float(acct.long_market_value) if acct.long_market_value is not None else None,
+            short_market_value=float(acct.short_market_value) if acct.short_market_value is not None else None,
+            maintenance_margin=float(acct.maintenance_margin) if acct.maintenance_margin is not None else None,
+            options_buying_power=(
+                float(acct.options_buying_power) if acct.options_buying_power is not None else None
+            ),
+            options_trading_level=acct.options_trading_level,
+            daytrade_count=acct.daytrade_count,
+            pattern_day_trader=acct.pattern_day_trader,
         )
+
+    def get_portfolio_history(self, period: str = "1M", timeframe: Optional[str] = None) -> pd.DataFrame:
+        """Real equity-over-time series from Alpaca's own portfolio history
+        endpoint. Alpaca pads the response with equity=0 rows for any part
+        of the requested period that predates the account's existence/first
+        funding -- those are dropped rather than plotted as a fake crash
+        to zero."""
+        request = GetPortfolioHistoryRequest(period=period, timeframe=timeframe)
+        hist = self.trading_client.get_portfolio_history(request)
+        if not hist.timestamp:
+            return pd.DataFrame(columns=["timestamp", "equity", "profit_loss", "profit_loss_pct"])
+        df = pd.DataFrame({
+            "timestamp": pd.to_datetime(hist.timestamp, unit="s", utc=True),
+            "equity": hist.equity,
+            "profit_loss": hist.profit_loss,
+            "profit_loss_pct": hist.profit_loss_pct,
+        })
+        df = df[df["equity"] > 0].reset_index(drop=True)
+        return df
 
     def get_positions(self) -> list[dict]:
         positions = self.trading_client.get_all_positions()
