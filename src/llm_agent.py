@@ -77,7 +77,9 @@ def _json_response_instructions(schema_model: type[BaseModel]) -> str:
     )
 
 
-def _parse_json_response(raw_text: str) -> dict:
+def _parse_json_response(raw_text: Optional[str]) -> dict:
+    if raw_text is None:
+        raise ValueError("Groq returned an empty response body (no message content).")
     return json.loads(raw_text.strip())
 
 
