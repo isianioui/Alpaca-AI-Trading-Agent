@@ -722,14 +722,210 @@ _DECISION_STYLE = f"""
 
 
 _DECISION_CARD_H = 178
-_DECISION_DETAIL_H = 150
+_DECISION_DETAIL_H = 260
 _DECISION_CAP = 720  # beyond this, the panel scrolls internally (custom scrollbar)
+
+
+# --------------------------------------------------------------------------- #
+# Indicator grid + option-candidate mini-card -- replaces the raw indented-JSON
+# <pre> dump previously shown under "Full reasoning" / "AI reasoning" toggles.
+# Same underlying numbers (src.indicators.build_feature_snapshot's output and
+# src.options_client's candidate dicts, verbatim), just laid out as labeled,
+# semantically-colored tiles instead of a JSON blob a reader has to parse by hand.
+# --------------------------------------------------------------------------- #
+_INDICATOR_PANEL_STYLE = f"""
+.ind-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }}
+.ind-tile {{
+  background: rgba(20,26,52,0.55); border: 1px solid rgba(124,111,240,0.14);
+  border-radius: 10px; padding: 0.5rem 0.65rem;
+}}
+.ind-label {{ font-size: 0.58rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }}
+.ind-value {{ font-size: 0.88rem; font-weight: 700; }}
+.ind-gauge-track {{
+  height: 5px; border-radius: 3px; margin-top: 7px; position: relative;
+  background: linear-gradient(90deg, rgba(52,211,153,0.35) 0%, rgba(124,111,240,0.22) 30%, rgba(124,111,240,0.22) 70%, rgba(251,113,133,0.35) 100%);
+}}
+.ind-gauge-marker {{
+  position: absolute; top: -3px; width: 2px; height: 11px; border-radius: 1px;
+  background: {OFFWHITE}; box-shadow: 0 0 4px rgba(0,0,0,0.6);
+}}
+.ind-range-track {{ height: 5px; border-radius: 3px; margin-top: 7px; background: rgba(124,111,240,0.18); position: relative; }}
+.ind-range-fill {{ position: absolute; top: 0; left: 0; height: 100%; border-radius: 3px; background: {GRADIENT}; }}
+.ind-range-marker {{
+  position: absolute; top: -3px; width: 2px; height: 11px; border-radius: 1px;
+  background: {OFFWHITE}; box-shadow: 0 0 4px rgba(0,0,0,0.6);
+}}
+.candidate-card {{
+  background: rgba(20,26,52,0.6); border: 1px solid rgba(124,111,240,0.18);
+  border-radius: 12px; padding: 0.7rem 0.9rem; margin-top: 0.6rem;
+}}
+.candidate-title {{
+  font-size: 0.66rem; font-weight: 800; color: {ACCENT2}; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 0.55rem; display: flex; align-items: center; gap: 6px;
+}}
+.candidate-title::before {{ content: ''; width: 5px; height: 5px; border-radius: 50%; background: {GRADIENT}; }}
+.candidate-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(82px, 1fr)); gap: 0.5rem 0.6rem; }}
+.candidate-cell .l {{ font-size: 0.56rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.03em; }}
+.candidate-cell .v {{ font-size: 0.82rem; font-weight: 700; color: {OFFWHITE}; font-family: 'JetBrains Mono', monospace; }}
+.verdict-box {{
+  display: flex; align-items: flex-start; gap: 0.55rem; margin-top: 0.5rem;
+  padding: 0.55rem 0.75rem; border-radius: 10px; font-size: 0.83rem; line-height: 1.5;
+}}
+.verdict-box.pass {{ background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.35); }}
+.verdict-box.fail {{ background: rgba(251,113,133,0.10); border: 1px solid rgba(251,113,133,0.35); }}
+.verdict-icon {{ font-size: 1rem; line-height: 1.3; flex-shrink: 0; }}
+.verdict-box.pass .verdict-icon {{ color: {GREEN}; }}
+.verdict-box.fail .verdict-icon {{ color: {RED}; }}
+.verdict-label {{ font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }}
+.verdict-box.pass .verdict-label {{ color: {GREEN}; }}
+.verdict-box.fail .verdict-label {{ color: {RED}; }}
+.verdict-text {{ color: {OFFWHITE}; }}
+"""
+
+
+def _render_verdict_box(status_class: str, risk_reason: str) -> str:
+    """Replaces the old plain '<b>Risk manager verdict:</b> ...' line with a
+    colored pass/fail callout so the verdict reads at a glance instead of
+    blending into the surrounding prose."""
+    passed = status_class in ("executed", "approved-dry")
+    tone = "pass" if passed else "fail"
+    icon = "&#10003;" if passed else "&#10005;"
+    label = "Risk Manager · Approved" if passed else "Risk Manager · Blocked"
+    return (
+        f'<div class="verdict-box {tone}"><span class="verdict-icon">{icon}</span>'
+        f'<div><div class="verdict-label">{label}</div>'
+        f'<div class="verdict-text">{_esc(risk_reason)}</div></div></div>'
+    )
+
+
+def _fmt_num(v, decimals: int = 2, suffix: str = "") -> str:
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v):,.{decimals}f}{suffix}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _ind_tile(label: str, value: str, tone: str = "neutral", extra: str = "") -> str:
+    return (
+        f'<div class="ind-tile"><div class="ind-label">{_esc(label)}</div>'
+        f'<div class="ind-value num tone-{tone}">{value}</div>{extra}</div>'
+    )
+
+
+def _render_indicator_grid(indicators: dict) -> str:
+    """indicators: the exact dict src.indicators.build_feature_snapshot()
+    produces (last_close, day_change_pct, sma_20, sma_50, price_vs_sma20_pct,
+    rsi_14, macd_histogram, annualized_volatility_pct, 52w_high, 52w_low).
+    Missing keys degrade to an em-dash tile rather than being fabricated."""
+    if not indicators:
+        return ""
+
+    tiles = [_ind_tile("Last Close", "$" + _fmt_num(indicators.get("last_close")))]
+
+    day_chg = indicators.get("day_change_pct")
+    tiles.append(_ind_tile(
+        "Day Change", ("+" if (day_chg or 0) >= 0 else "") + _fmt_num(day_chg, 2, "%"),
+        "positive" if (day_chg or 0) >= 0 else "negative",
+    ))
+
+    tiles.append(_ind_tile("SMA 20", "$" + _fmt_num(indicators.get("sma_20"))))
+    tiles.append(_ind_tile("SMA 50", "$" + _fmt_num(indicators.get("sma_50"))))
+
+    vs_sma = indicators.get("price_vs_sma20_pct")
+    tiles.append(_ind_tile(
+        "Price vs SMA20", ("+" if (vs_sma or 0) >= 0 else "") + _fmt_num(vs_sma, 2, "%"),
+        "positive" if (vs_sma or 0) >= 0 else "negative",
+    ))
+
+    rsi = indicators.get("rsi_14")
+    if rsi is not None:
+        rsi_tone = "positive" if rsi < 30 else ("negative" if rsi > 70 else "neutral")
+        rsi_zone = "oversold" if rsi < 30 else ("overbought" if rsi > 70 else "neutral")
+        marker_pct = max(0.0, min(100.0, rsi))
+        gauge = (
+            f'<div class="ind-gauge-track"><div class="ind-gauge-marker" '
+            f'style="left:calc({marker_pct:.1f}% - 1px);"></div></div>'
+        )
+        tiles.append(_ind_tile("RSI (14)", f"{_fmt_num(rsi)} · {rsi_zone}", rsi_tone, gauge))
+    else:
+        tiles.append(_ind_tile("RSI (14)", "—"))
+
+    macd_h = indicators.get("macd_histogram")
+    tiles.append(_ind_tile(
+        "MACD Histogram", _fmt_num(macd_h, 4),
+        "positive" if (macd_h or 0) >= 0 else "negative",
+    ))
+
+    vol = indicators.get("annualized_volatility_pct")
+    tiles.append(_ind_tile("Ann. Volatility", _fmt_num(vol, 1, "%")))
+
+    lo, hi, last = indicators.get("52w_low"), indicators.get("52w_high"), indicators.get("last_close")
+    if lo is not None and hi is not None and last is not None and hi > lo:
+        pos_pct = max(0.0, min(100.0, (last - lo) / (hi - lo) * 100))
+        range_bar = (
+            f'<div class="ind-range-track"><div class="ind-range-fill" style="width:{pos_pct:.1f}%;"></div>'
+            f'<div class="ind-range-marker" style="left:calc({pos_pct:.1f}% - 1px);"></div></div>'
+        )
+        tiles.append(_ind_tile("52W Range", f"${_fmt_num(lo)} – ${_fmt_num(hi)}", "neutral", range_bar))
+
+    return f'<div class="ind-grid">{"".join(tiles)}</div>'
+
+
+_CANDIDATE_LABELS = {"open_covered_call": "Covered Call Candidate", "open_cash_secured_put": "Cash-Secured Put Candidate"}
+
+
+def _render_candidate_card(candidate: dict, kind_label: str) -> str:
+    """candidate: one raw dict from OptionsClient.get_best_covered_call_candidate
+    / get_best_cash_secured_put_candidate (symbol, strike, expiration, dte, bid,
+    ask, mid, implied_volatility, delta/gamma/theta/vega, open_interest)."""
+    if not candidate:
+        return ""
+    cells = [
+        ("Contract", candidate.get("symbol", "—")),
+        ("Strike", "$" + _fmt_num(candidate.get("strike"))),
+        ("Expires", f"{candidate.get('expiration', '—')} ({candidate.get('dte', '—')}d)"),
+        ("Bid", "$" + _fmt_num(candidate.get("bid"))),
+        ("Ask", "$" + _fmt_num(candidate.get("ask"))),
+        ("Mid", "$" + _fmt_num(candidate.get("mid"))),
+        ("IV", _fmt_num((candidate.get("implied_volatility") or 0) * 100, 1, "%")),
+        ("Delta", _fmt_num(candidate.get("delta"), 3)),
+        ("Gamma", _fmt_num(candidate.get("gamma"), 4)),
+        ("Theta", _fmt_num(candidate.get("theta"), 3)),
+        ("Vega", _fmt_num(candidate.get("vega"), 3)),
+        ("Open Int.", str(candidate.get("open_interest", "—"))),
+    ]
+    grid = "".join(
+        f'<div class="candidate-cell"><div class="l">{_esc(l)}</div><div class="v">{_esc(v)}</div></div>'
+        for l, v in cells
+    )
+    return (
+        f'<div class="candidate-card"><div class="candidate-title">{_esc(kind_label)}</div>'
+        f'<div class="candidate-grid">{grid}</div></div>'
+    )
+
+
+def _render_decision_extras(d: dict) -> str:
+    """Builds the indicator grid + (for options records) any candidate
+    card(s) for one already-prepped decision record. d may carry
+    "indicators" (dict) and/or "candidates" (dict of action -> candidate
+    dict, options records only) -- both optional, both degrade to nothing
+    rather than a fabricated placeholder when absent."""
+    parts = []
+    if d.get("indicators"):
+        parts.append(_render_indicator_grid(d["indicators"]))
+    for action, candidate in (d.get("candidates") or {}).items():
+        if candidate:
+            parts.append(_render_candidate_card(candidate, _CANDIDATE_LABELS.get(action, "Candidate")))
+    return "".join(p for p in parts if p)
 
 
 def render_decision_cards(records: list[dict]) -> tuple[str, int]:
     """records: list of dicts with status_class, status_label, symbol, action,
     contract_suffix, timestamp, meta_line, reasoning_short, reasoning_full,
-    risk_note, risk_reason, order_str (or None), indicators_str.
+    risk_note, risk_reason, order_str (or None), indicators (dict or None),
+    candidates (dict of action -> option-candidate dict, options records only).
 
     Same scroll-panel sizing strategy as the position card renderers -- this
     is the explicit "long decision history list" case the custom-scrollbar
@@ -743,8 +939,9 @@ def render_decision_cards(records: list[dict]) -> tuple[str, int]:
     cards = []
     for i, d in enumerate(records):
         card_id = f"dec-{i}"
-        order_line = f'<div style="margin-top:4px;"><b>Order placed:</b> <code>{_esc(d["order_str"])}</code></div>' if d.get("order_str") else ""
-        indicators_block = f'<pre>{_esc(d.get("indicators_str", ""))}</pre>' if d.get("indicators_str") else ""
+        order_line = f'<div style="margin-top:6px;"><b>Order placed:</b> <code>{_esc(d["order_str"])}</code></div>' if d.get("order_str") else ""
+        verdict_box = _render_verdict_box(d["status_class"], d.get("risk_reason", "—"))
+        extras = _render_decision_extras(d)
 
         cards.append(f"""
         <div class="decision-card {d['status_class']} animate-in" style="animation-delay:{min(i, 20) * 30}ms">
@@ -759,9 +956,9 @@ def render_decision_cards(records: list[dict]) -> tuple[str, int]:
           <div class="card-detail" id="{card_id}">
             <div><b>Reasoning:</b> {_esc(d.get('reasoning_full', '—'))}</div>
             <div style="margin-top:4px;"><b>Risk note:</b> {_esc(d.get('risk_note', '—'))}</div>
-            <div style="margin-top:4px;"><b>Risk manager verdict:</b> {_esc(d.get('risk_reason', '—'))}</div>
+            {verdict_box}
             {order_line}
-            {indicators_block}
+            {extras}
           </div>
         </div>
         """)
@@ -769,7 +966,7 @@ def render_decision_cards(records: list[dict]) -> tuple[str, int]:
     collapsed_total = len(records) * _DECISION_CARD_H
     container_h = min(_DECISION_CAP, collapsed_total + _DECISION_DETAIL_H)
     body = f'<div class="scroll-panel" style="max-height:{container_h}px;">{"".join(cards)}</div>'
-    return _doc(body, _DECISION_STYLE, TOGGLE_JS), container_h + 16
+    return _doc(body, _DECISION_STYLE + _INDICATOR_PANEL_STYLE, TOGGLE_JS), container_h + 16
 
 
 # --------------------------------------------------------------------------- #
@@ -814,7 +1011,7 @@ _TABLE_STYLE = f"""
 """
 
 _TABLE_ROW_H = 42
-_TABLE_DETAIL_H = 155
+_TABLE_DETAIL_H = 260
 _TABLE_CAP = 640
 
 
@@ -836,7 +1033,8 @@ def render_decision_table(records: list[dict]) -> tuple[str, int]:
         row_id = f"tbl-{i}"
         conf_display = "—" if "Confidence" not in d.get("meta_line", "") else d["meta_line"].split(":")[-1].strip()
         order_line = f'<div style="margin-top:6px;"><b>Order placed:</b> <code>{_esc(d["order_str"])}</code></div>' if d.get("order_str") else ""
-        indicators_block = f'<pre>{_esc(d.get("indicators_str", ""))}</pre>' if d.get("indicators_str") else ""
+        verdict_box = _render_verdict_box(d["status_class"], d.get("risk_reason", "—"))
+        extras = _render_decision_extras(d)
 
         rows.append(f"""
         <div class="dec-row {d['status_class']}" onclick="toggleCard('{row_id}')">
@@ -849,16 +1047,16 @@ def render_decision_table(records: list[dict]) -> tuple[str, int]:
         <div class="dec-detail" id="{row_id}">
           <div><b>Reasoning:</b> {_esc(d.get('reasoning_full', '—'))}</div>
           <div style="margin-top:4px;"><b>Risk note:</b> {_esc(d.get('risk_note', '—'))}</div>
-          <div style="margin-top:4px;"><b>Risk manager verdict:</b> {_esc(d.get('risk_reason', '—'))}</div>
+          {verdict_box}
           {order_line}
-          {indicators_block}
+          {extras}
         </div>
         """)
 
     collapsed_total = 44 + len(records) * _TABLE_ROW_H
     container_h = min(_TABLE_CAP, collapsed_total + _TABLE_DETAIL_H)
     body = f'<div class="dec-table scroll-panel" style="max-height:{container_h}px;">{"".join(rows)}</div>'
-    return _doc(body, _TABLE_STYLE, TOGGLE_JS), container_h + 16
+    return _doc(body, _TABLE_STYLE + _INDICATOR_PANEL_STYLE, TOGGLE_JS), container_h + 16
 
 
 # --------------------------------------------------------------------------- #
@@ -887,7 +1085,7 @@ _STEPS = [
      "Pull live prices and technical indicators from Alpaca's Trading and Market Data APIs — "
      "for both stocks and live options chains (strikes, expirations, greeks, quotes)."),
     ("02", "REASON",
-     "Gemini evaluates the data and proposes a structured buy/sell/hold (or options open/close) "
+     "GPT-OSS-120B (via Groq) evaluates the data and proposes a structured buy/sell/hold (or options open/close) "
      "decision with a confidence score and a written rationale. It never sees or controls "
      "position sizing."),
     ("03", "GATE",
@@ -915,6 +1113,198 @@ def render_how_it_decides() -> tuple[str, int]:
     # clips it) -- sized generously for that worst case rather than the
     # shorter steps.
     return _doc(body, _EXPLAINER_STYLE), 460
+
+
+# --------------------------------------------------------------------------- #
+# Risk Gate Catalog -- src/risk_gates.py's STOCK_GATES / OPTIONS_GATES,
+# numbered and named, each with a live blocked-count pulled from real logged
+# decisions (src/risk_gates.py's classifier, not a fabricated number).
+# --------------------------------------------------------------------------- #
+_GATE_CATALOG_STYLE = f"""
+.gate-summary-row {{ display: flex; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 1.1rem; }}
+.gate-summary-card {{
+  flex: 1 1 150px; min-width: 140px;
+  background: linear-gradient(160deg, rgba(20,26,52,0.92) 0%, rgba(14,18,38,0.75) 100%);
+  border: 1px solid rgba(124,111,240,0.16); border-radius: 14px; padding: 0.85rem 1rem;
+}}
+.gate-summary-label {{ font-size: 0.64rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
+.gate-summary-value {{ font-size: 1.4rem; font-weight: 800; }}
+.gate-track-title {{
+  font-size: 0.72rem; font-weight: 800; color: {ACCENT2}; text-transform: uppercase;
+  letter-spacing: 0.08em; margin: 1.1rem 0 0.6rem 0;
+}}
+.gate-list {{ display: flex; flex-direction: column; gap: 0.55rem; }}
+.gate-row {{
+  display: flex; align-items: center; gap: 0.9rem;
+  background: rgba(20,26,52,0.55); border: 1px solid rgba(124,111,240,0.13);
+  border-radius: 12px; padding: 0.75rem 1rem;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}}
+.gate-row:hover {{ border-color: rgba(124,111,240,0.32); transform: translateX(2px); }}
+.gate-num {{
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: {GRADIENT}; color: #0A0E1E; font-weight: 800; font-size: 0.88rem;
+  font-family: 'JetBrains Mono', monospace;
+}}
+.gate-body {{ flex: 1; min-width: 0; }}
+.gate-name {{ font-size: 0.92rem; font-weight: 800; color: {OFFWHITE}; }}
+.gate-desc {{ font-size: 0.78rem; color: {ICE}; opacity: 0.85; line-height: 1.45; margin-top: 2px; }}
+.gate-count {{
+  flex-shrink: 0; text-align: center; min-width: 76px; padding: 0.4rem 0.6rem;
+  border-radius: 10px; font-family: 'JetBrains Mono', monospace;
+}}
+.gate-count.zero {{ background: rgba(124,111,240,0.08); border: 1px solid rgba(124,111,240,0.15); }}
+.gate-count.nonzero {{ background: rgba(251,113,133,0.10); border: 1px solid rgba(251,113,133,0.35); }}
+.gate-count-value {{ font-size: 1.05rem; font-weight: 800; }}
+.gate-count.zero .gate-count-value {{ color: {MUTED_ON_DARK}; }}
+.gate-count.nonzero .gate-count-value {{ color: {RED}; }}
+.gate-count-label {{ font-size: 0.56rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 1px; }}
+"""
+
+
+def render_gate_catalog(
+    stock_gates: list[dict], stock_blocked: dict, stock_evaluated: int, stock_approved: int,
+    options_gates: list[dict], options_blocked: dict, options_evaluated: int, options_approved: int,
+) -> tuple[str, int]:
+    total_evaluated = stock_evaluated + options_evaluated
+    total_approved = stock_approved + options_approved
+    total_blocked = total_evaluated - total_approved
+
+    summary = [
+        ("Decisions Evaluated", str(total_evaluated)),
+        ("Survived Every Gate", str(total_approved)),
+        ("Blocked", str(total_blocked)),
+    ]
+    summary_html = "".join(
+        f'<div class="gate-summary-card animate-in"><div class="gate-summary-label">{_esc(l)}</div>'
+        f'<div class="gate-summary-value num">{_esc(v)}</div></div>'
+        for l, v in summary
+    )
+
+    def _track(title: str, gates: list[dict], blocked: dict, i_offset: int) -> str:
+        rows = []
+        for i, g in enumerate(gates):
+            count = blocked.get(g["id"], 0)
+            tone = "nonzero" if count else "zero"
+            rows.append(f"""
+            <div class="gate-row animate-in" style="animation-delay:{(i_offset + i) * 40}ms">
+              <div class="gate-num">{i + 1:02d}</div>
+              <div class="gate-body">
+                <div class="gate-name">{_esc(g['name'])}</div>
+                <div class="gate-desc">{_esc(g['description'])}</div>
+              </div>
+              <div class="gate-count {tone}">
+                <div class="gate-count-value">{count}</div>
+                <div class="gate-count-label">blocked</div>
+              </div>
+            </div>
+            """)
+        return f'<div class="gate-track-title">{_esc(title)}</div><div class="gate-list">{"".join(rows)}</div>'
+
+    body = (
+        f'<div class="gate-summary-row">{summary_html}</div>'
+        f'{_track("Stock Entry Gates", stock_gates, stock_blocked, 0)}'
+        f'{_track("Options Entry Gates", options_gates, options_blocked, len(stock_gates))}'
+    )
+    height = 150 + len(stock_gates) * 78 + len(options_gates) * 78 + 90
+    return _doc(body, _GATE_CATALOG_STYLE), height
+
+
+# --------------------------------------------------------------------------- #
+# Backtest -- persistent "simulation, not live results" banner + trade log.
+# The equity curve itself is a native st.plotly_chart in dashboard.py (same
+# pattern as the live equity curve), not rendered here.
+# --------------------------------------------------------------------------- #
+_BACKTEST_BANNER_STYLE = f"""
+.bt-banner {{
+  position: relative; overflow: hidden; display: flex; align-items: flex-start; gap: 0.85rem;
+  background: linear-gradient(135deg, rgba(124,111,240,0.18) 0%, rgba(34,211,238,0.10) 100%);
+  border: 1px solid rgba(124,111,240,0.4); border-radius: 14px; padding: 0.9rem 1.2rem;
+}}
+.bt-banner::before {{
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0 10px, transparent 10px 20px);
+}}
+.bt-banner-icon {{ font-size: 1.35rem; flex-shrink: 0; line-height: 1.3; }}
+.bt-banner-title {{ font-size: 0.8rem; font-weight: 800; color: {OFFWHITE}; text-transform: uppercase; letter-spacing: 0.05em; }}
+.bt-banner-text {{ font-size: 0.83rem; color: {ICE}; opacity: 0.92; margin-top: 3px; line-height: 1.5; }}
+"""
+
+
+def render_backtest_banner(disclaimer: str) -> tuple[str, int]:
+    body = f"""
+    <div class="bt-banner animate-in">
+      <div class="bt-banner-icon">&#129514;</div>
+      <div><div class="bt-banner-title">Backtest &mdash; historical simulation, not live results</div>
+      <div class="bt-banner-text">{_esc(disclaimer)}</div></div>
+    </div>
+    """
+    lines = max(1, len(disclaimer) // 85 + 1)
+    return _doc(body, _BACKTEST_BANNER_STYLE), 56 + lines * 20
+
+
+_BT_TRADES_STYLE = f"""
+.bt-table {{ font-size: 0.8rem; }}
+.bt-head, .bt-row {{
+  display: grid; grid-template-columns: 96px 76px 68px 92px 70px 120px 1fr;
+  gap: 0.7rem; align-items: center;
+}}
+.bt-head {{
+  padding: 0 0.9rem 0.5rem 0.9rem; color: {MUTED_ON_DARK};
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  border-bottom: 1px solid rgba(124,111,240,0.16); position: sticky; top: 0; background: {NAVY};
+}}
+.bt-row {{ padding: 0.5rem 0.9rem; border-radius: 8px; border-left: 3px solid transparent; }}
+.bt-row.buy {{ border-left-color: {ICE}; }}
+.bt-row.sell-win {{ border-left-color: {GREEN}; }}
+.bt-row.sell-loss {{ border-left-color: {RED}; }}
+.bt-badge {{ display: inline-block; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.1rem 0.5rem; border-radius: 999px; }}
+.bt-badge.buy {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
+.bt-badge.sell {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.45); }}
+.bt-cell.reason {{ color: {ICE}; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.76rem; }}
+.scroll-panel {{ overflow-y: auto; padding-right: 6px; }}
+"""
+
+
+def render_backtest_trades(trades: list[dict]) -> tuple[str, int]:
+    """trades: list of dicts as produced by BacktestResult.trades (symbol,
+    action, date, price, qty, reason, pnl, pnl_pct)."""
+    if not trades:
+        body = _empty_state("No simulated trades in this run.")
+        return _doc(body, _BT_TRADES_STYLE), 70
+
+    header = (
+        '<div class="bt-head"><div>DATE</div><div>SYMBOL</div><div>ACTION</div>'
+        '<div>PRICE</div><div>QTY</div><div>P&amp;L</div><div>REASON</div></div>'
+    )
+    rows = [header]
+    for t in reversed(trades):  # newest first
+        is_sell = t["action"] == "SELL"
+        pnl = t.get("pnl")
+        row_cls = "buy" if not is_sell else ("sell-win" if (pnl or 0) >= 0 else "sell-loss")
+        if pnl is None:
+            pnl_html = "—"
+        else:
+            tone = "positive" if pnl >= 0 else "negative"
+            pnl_html = f'<span class="num tone-{tone}">{"+" if pnl >= 0 else "-"}${abs(pnl):,.2f}</span>'
+
+        rows.append(f"""
+        <div class="bt-row {row_cls}">
+          <div class="bt-cell num">{_esc(t['date'])}</div>
+          <div class="bt-cell"><b>{_esc(t['symbol'])}</b></div>
+          <div class="bt-cell"><span class="bt-badge {'sell' if is_sell else 'buy'}">{_esc(t['action'])}</span></div>
+          <div class="bt-cell num">${t['price']:,.2f}</div>
+          <div class="bt-cell num">{t['qty']:g}</div>
+          <div class="bt-cell">{pnl_html}</div>
+          <div class="bt-cell reason">{_esc(t['reason'])}</div>
+        </div>
+        """)
+
+    row_h = 40
+    container_h = min(560, 44 + len(trades) * row_h)
+    body = f'<div class="bt-table scroll-panel" style="max-height:{container_h}px;">{"".join(rows)}</div>'
+    return _doc(body, _BT_TRADES_STYLE), container_h + 16
 
 
 # --------------------------------------------------------------------------- #
@@ -957,7 +1347,7 @@ def render_footer(is_paper: bool = True) -> tuple[str, int]:
     )
     body = f"""
     <div class="app-footer">
-      An autonomous, explainable paper-trading agent &mdash; Gemini reasons, a deterministic risk gate decides.<br/>
+      An autonomous, explainable paper-trading agent &mdash; GPT-OSS-120B reasons, a deterministic risk gate decides.<br/>
       Built for the Alpaca AI Trading Agents Hackathon
       (<a href="https://lablab.ai" target="_blank">lablab.ai</a>)
       &middot; <a href="https://github.com/isianioui/Alpaca-AI-Trading-Agent" target="_blank">GitHub repo</a><br/>

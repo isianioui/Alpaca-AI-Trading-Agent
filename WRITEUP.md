@@ -2,21 +2,23 @@
 
 ## AI logic
 
-Google **Gemini** (`GEMINI_MODEL` env var, currently `gemini-3.6-flash`) is the
-sole reasoning component, called once per symbol per cycle via
-`src/llm_agent.py`. It is never given tool-calling authority — it only
-returns a structured decision that downstream code independently validates
-and sizes.
+**GPT-OSS-120B via Groq** (`GROQ_MODEL` env var, currently
+`openai/gpt-oss-120b`) is the sole reasoning component, called once per
+symbol per cycle via `src/llm_agent.py`. It is never given tool-calling
+authority — it only returns a structured decision that downstream code
+independently validates and sizes.
 
-**Stock pipeline** (`LLMTradingAgent.decide`): Gemini receives a JSON payload
-of the symbol, a technical-indicator snapshot (SMA/EMA/RSI/MACD, volatility,
-last close — computed in `indicators.py` from 90 days of Alpaca bars), an
-account-context block (equity, cash, buying power, daily P&L%, open position
-count), and the current position in that symbol if any. It must return
-`action` (`buy`/`sell`/`hold`), `confidence` (0–1), `reasoning`, and
-`risk_note`, enforced via a Pydantic `response_schema` (`response_mime_type:
-application/json`) — never free-text parsed with regex, so output can't
-silently fail to parse.
+**Stock pipeline** (`LLMTradingAgent.decide`): the model receives a JSON
+payload of the symbol, a technical-indicator snapshot (SMA/EMA/RSI/MACD,
+volatility, last close — computed in `indicators.py` from 90 days of Alpaca
+bars), an account-context block (equity, cash, buying power, daily P&L%,
+open position count), and the current position in that symbol if any. It
+must return `action` (`buy`/`sell`/`hold`), `confidence` (0–1), `reasoning`,
+and `risk_note`. Groq's JSON mode (`response_format: {"type":
+"json_object"}`) guarantees syntactically valid JSON; the exact field
+schema is spelled out in the prompt and the parsed response is validated
+against a Pydantic model before being trusted — never free-text parsed with
+regex, so output can't silently fail to parse or partially match.
 
 **Options pipeline** (`OptionsLLMAgent.decide_option`): same indicator/account
 context, plus up to two pre-vetted contract candidates — a covered-call and a

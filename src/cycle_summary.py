@@ -10,7 +10,7 @@ risk_reason, confidence, trigger, timestamps) into:
 
 for the dashboard's "Latest Cycle" card and stat-chip row. Both functions
 are deterministic string/arithmetic templating over data that already
-exists -- nothing here calls Gemini or invents a fact not present in the
+exists -- nothing here calls the LLM or invents a fact not present in the
 records passed in.
 """
 

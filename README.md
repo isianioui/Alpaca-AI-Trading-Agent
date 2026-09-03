@@ -3,19 +3,19 @@
 **Built for the [Alpaca AI Trading Agents Hackathon](https://lablab.ai/ai-hackathons/alpaca-ai-trading-agents-hackathon) (lablab.ai)**
 
 An autonomous, explainable AI trading agent that pulls live market data from
-**Alpaca's Trading API**, reasons about each trade with **Google Gemini**,
-sizes and approves every position through a deterministic risk manager,
-executes on **Alpaca paper trading**, and shows its full decision trail on a
-**Streamlit dashboard**. No real money is ever at risk, and every API used
-here is free (Alpaca paper trading and Gemini's free tier both require no
-payment method).
+**Alpaca's Trading API**, reasons about each trade with **GPT-OSS-120B via
+Groq**, sizes and approves every position through a deterministic risk
+manager, executes on **Alpaca paper trading**, and shows its full decision
+trail on a **Streamlit dashboard**. No real money is ever at risk, and every
+API used here is free (Alpaca paper trading and Groq's free tier both
+require no payment method).
 
 ## Why this project
 
 Most "AI trading bot" demos are a black box: money moves and nobody can say
 why. This agent is built around **explainability first**:
 
-- Gemini never has raw authority to place a trade — it can only *propose* an
+- The LLM never has raw authority to place a trade — it can only *propose* an
   action, and it must justify it in plain English every time.
 - A separate, deterministic `RiskManager` (no LLM involved) enforces position
   sizing, max concurrent positions, and a daily-loss circuit breaker. The LLM
@@ -37,8 +37,8 @@ why. This agent is built around **explainability first**:
                 └────────┬─────────┘
                          │ structured feature snapshot
                 ┌────────▼─────────┐
-                │   llm_agent.py    │  Gemini decides buy/sell/hold + reasoning
-                │  (Google GenAI)   │  via response_schema → structured JSON
+                │   llm_agent.py    │  GPT-OSS-120B decides buy/sell/hold + reasoning
+                │  (Groq API)       │  via JSON mode → structured JSON
                 └────────┬─────────┘
                          │ proposed decision
                 ┌────────▼─────────┐
@@ -78,9 +78,9 @@ agent's behavior.
 - **Alpaca (paper trading, free, simulated $100k account):**
   [app.alpaca.markets/paper/dashboard/overview](https://app.alpaca.markets/paper/dashboard/overview)
   → generate an API key + secret.
-- **Google Gemini (free tier, no credit card required):**
-  [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
-  → sign in with a Google account and generate an API key.
+- **Groq (genuinely free tier, no credit card required):**
+  [console.groq.com/keys](https://console.groq.com/keys)
+  → sign in and generate an API key.
 
 ### 2. Install Alpaca's official CLI
 
@@ -278,7 +278,7 @@ Extra risk controls, configurable in `.env`:
 │   ├── alpaca_client.py        # Alpaca Trading + Market Data API wrapper (SDK, + routes execution to CLI)
 │   ├── alpaca_cli.py            # wraps the Alpaca CLI binary via subprocess -> parsed JSON
 │   ├── indicators.py           # SMA/EMA/RSI/MACD/volatility
-│   ├── llm_agent.py             # Gemini decision engine (structured JSON output)
+│   ├── llm_agent.py             # Groq (GPT-OSS-120B) decision engine (structured JSON output)
 │   ├── risk_manager.py          # deterministic position sizing & limits
 │   ├── trading_agent.py         # orchestrates the full stock decision cycle
 │   ├── options_client.py        # Alpaca options chain data + order wrapper (SDK, + routes execution to CLI)
@@ -302,8 +302,9 @@ Extra risk controls, configurable in `.env`:
 - `src/alpaca_cli.py` never sets `ALPACA_LIVE_TRADE` — it is stripped from
   the subprocess environment on every call — so the Alpaca CLI execution
   path always resolves to paper trading regardless of the host environment.
-- The LLM's output is always structured (enforced Pydantic `response_schema`),
-  never free text parsed with regex, so decisions can't silently fail to parse.
+- The LLM's output is always structured (Groq JSON mode + validated against a
+  Pydantic schema before being trusted), never free text parsed with regex,
+  so decisions can't silently fail to parse.
 - Every rejected trade is logged with the reason, not just the executed ones.
 - Options trading is restricted to exactly two defined-risk strategies —
   Alpaca's API itself does not distinguish covered from naked risk tiers, so
@@ -313,7 +314,7 @@ Extra risk controls, configurable in `.env`:
 
 ## Built with
 
-[Alpaca Trading API](https://alpaca.markets/) · [Alpaca CLI](https://github.com/alpacahq/cli) · [Google Gemini API](https://ai.google.dev/) · Streamlit · pandas
+[Alpaca Trading API](https://alpaca.markets/) · [Alpaca CLI](https://github.com/alpacahq/cli) · [Groq API](https://console.groq.com/) · Streamlit · pandas
 
 ---
 

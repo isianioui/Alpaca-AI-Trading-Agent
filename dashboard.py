@@ -20,11 +20,13 @@ Run with:  streamlit run dashboard.py
 
 from __future__ import annotations
 
+import dataclasses
 import html
 import json
 import os
 import re
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,6 +34,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
+from src import backtest_engine
 from src import dashboard_ui as ui
 from src import payoff as payoff_calc
 from src import trade_history
@@ -41,12 +44,13 @@ from src.exit_engine import ExitLimits, run_exit_engine
 from src.logger import load_decisions
 from src.options_client import OptionsClient
 from src.options_trading_agent import OptionsTradingAgent
+from src.risk_gates import compute_gate_stats
 from src.risk_manager import OptionsRiskLimits, RiskLimits
 from src.trading_agent import TradingAgent
 
 load_dotenv()
 
-st.set_page_config(page_title="Alpaca AI Trading Agent", page_icon="🦙", layout="wide")
+st.set_page_config(page_title="QASIX AI Trading Agent", page_icon="◆", layout="wide")
 
 NAVY, NAVY_MID, ICE, GREEN, RED, OFFWHITE, MUTED_ON_DARK, ACCENT, ACCENT2, GRADIENT = (
     ui.NAVY, ui.NAVY_MID, ui.ICE, ui.GREEN, ui.RED, ui.OFFWHITE, ui.MUTED_ON_DARK,
@@ -55,7 +59,8 @@ NAVY, NAVY_MID, ICE, GREEN, RED, OFFWHITE, MUTED_ON_DARK, ACCENT, ACCENT2, GRADI
 
 NAV_GROUPS = [
     ("LIVE", [("Overview", "🏠"), ("Positions", "📊"), ("Options", "🧾")]),
-    ("RECORDS", [("Decisions", "🧠"), ("Performance", "📈"), ("Methodology", "🧭")]),
+    ("RECORDS", [("Decisions", "🧠"), ("Performance", "📈"), ("Backtest", "🧪")]),
+    ("ANALYSIS", [("Risk Gates", "🚦"), ("Methodology", "🧭")]),
     ("ABOUT", [("Docs", "📄"), ("Settings", "⚙️")]),
 ]
 
@@ -160,8 +165,14 @@ def inject_css() -> None:
 
         /* ---- Sidebar brand ---- */
         .brand-block {{ padding: 0.4rem 0.2rem 1rem 0.2rem; margin-bottom: 0.4rem; border-bottom: 1px solid rgba(124,111,240,0.14); }}
-        .brand-logo-row {{ display: flex; align-items: center; gap: 0.55rem; }}
-        .brand-emoji {{ font-size: 1.7rem; filter: drop-shadow(0 0 10px rgba(124,111,240,0.55)); animation: brandGlow 3.2s ease-in-out infinite; }}
+        .brand-logo-row {{ display: flex; align-items: center; gap: 0.6rem; }}
+        .brand-mark {{
+            width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: {GRADIENT}; color: #0A0E1E; font-weight: 800; font-size: 1.05rem;
+            box-shadow: 0 0 14px rgba(124,111,240,0.55);
+            animation: brandGlow 3.2s ease-in-out infinite;
+        }}
         .brand-name {{
             font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em;
             background: {GRADIENT}; background-size: 200% auto;
@@ -474,14 +485,11 @@ def _prep_decision_record(d: dict) -> dict:
     reasoning = str(d.get("reasoning") or "—")
     reasoning_short = reasoning if len(reasoning) <= 220 else reasoning[:217] + "…"
 
-    indicators_parts = []
-    if d.get("indicators"):
-        indicators_parts.append(json.dumps(d["indicators"], indent=2, default=str))
-    if "covered_call_candidate" in d or "cash_secured_put_candidate" in d:
-        indicators_parts.append(json.dumps({
-            "covered_call_candidate": d.get("covered_call_candidate"),
-            "cash_secured_put_candidate": d.get("cash_secured_put_candidate"),
-        }, indent=2, default=str))
+    candidates = {}
+    if d.get("covered_call_candidate"):
+        candidates["open_covered_call"] = d["covered_call_candidate"]
+    if d.get("cash_secured_put_candidate"):
+        candidates["open_cash_secured_put"] = d["cash_secured_put_candidate"]
 
     return {
         "status_class": status_class, "status_label": status_label,
@@ -490,7 +498,8 @@ def _prep_decision_record(d: dict) -> dict:
         "reasoning_short": reasoning_short, "reasoning_full": d.get("reasoning", "—"),
         "risk_note": d.get("risk_note", "—"), "risk_reason": d.get("risk_reason", "—"),
         "order_str": str(d["order"]) if d.get("order") else None,
-        "indicators_str": "\n\n".join(indicators_parts),
+        "indicators": d.get("indicators"),
+        "candidates": candidates,
     }
 
 
@@ -771,7 +780,7 @@ def render_view_options(
     options_dry_run = st.checkbox("Dry run (decide only, no orders)", value=True, key="options_dry_run")
     if st.button("▶️ Run options agent cycle now", type="primary", key="options_run_button"):
         symbols = [s.strip().upper() for s in options_watchlist_input.split(",") if s.strip()]
-        with st.spinner("Agent is analyzing option chains and consulting Gemini..."):
+        with st.spinner("Agent is analyzing option chains and consulting GPT-OSS-120B (Groq)..."):
             options_agent = OptionsTradingAgent(
                 alpaca_client=client, options_client=options_client, dry_run=options_dry_run,
             )
@@ -784,7 +793,7 @@ def render_view_options(
 
 
 def _short_error_reason(reason: str) -> str:
-    """Error records store the full exception text (often a raw Gemini API
+    """Error records store the full exception text (often a raw Groq API
     error blob with URLs and JSON). Show just the leading '{code} {STATUS}.'
     prefix these consistently start with, falling back to a plain truncation
     for anything that doesn't match that shape."""
@@ -887,9 +896,197 @@ def render_view_strategy() -> None:
     embed(ui.render_how_it_decides())
 
 
+def render_view_risk_gates() -> None:
+    page_header(
+        "Risk Gate Catalog",
+        "Every hard-coded, non-LLM check a proposed trade has to survive before it's ever sized "
+        "or sent to Alpaca — named, numbered, and counted against every decision this agent has "
+        "actually logged.",
+    )
+    decisions = load_decisions()
+    stock_stats, options_stats = compute_gate_stats(decisions)
+
+    if stock_stats.evaluated + options_stats.evaluated == 0:
+        embed(ui.render_inline_alert(
+            "No non-hold decisions logged yet — run an agent cycle from the sidebar to start "
+            "populating live pass/fail counts for each gate below."
+        ))
+
+    embed(ui.render_gate_catalog(
+        stock_stats.gates, stock_stats.blocked_counts, stock_stats.evaluated, stock_stats.approved,
+        options_stats.gates, options_stats.blocked_counts, options_stats.evaluated, options_stats.approved,
+    ))
+
+    excluded = stock_stats.holds_excluded + options_stats.holds_excluded
+    errors = stock_stats.errors_excluded + options_stats.errors_excluded
+    if excluded or errors:
+        st.caption(
+            f"Excluded from the counts above: {excluded} hold/no-candidate recommendation(s) that "
+            f"never reached these gates, and {errors} error record(s)."
+        )
+
+
 def render_view_performance() -> None:
     page_header("Performance", "Realized P&L from every position that has actually closed.")
     render_performance_panel()
+
+
+def _backtest_cache_path() -> Path:
+    return Path(__file__).resolve().parent / "data" / "backtest_results.json"
+
+
+_BACKTEST_MAX_CALLS = 300  # hard cap on LLM calls per run -- protects free-tier quota/rate limits
+_BACKTEST_CADENCE_OPTIONS = {"Daily": 1, "Every 3 trading days": 3, "Weekly": 5}
+
+
+def render_view_backtest(client: AlpacaClient) -> None:
+    page_header(
+        "Backtest",
+        "Replays the live decision pipeline — same indicators, same Groq call, same risk-manager "
+        "thresholds — over past Alpaca daily bars, so the strategy has some evidence behind it "
+        "before the paper account has real closed trades to show.",
+    )
+    embed(ui.render_backtest_banner(backtest_engine.BACKTEST_DISCLAIMER))
+
+    section_divider()
+    section_title("Configure Run", "🧪", level="md")
+
+    default_watchlist = [s.strip().upper() for s in
+                          os.getenv("WATCHLIST", "AAPL,MSFT,TSLA,NVDA,SPY").split(",") if s.strip()]
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        symbols = st.multiselect("Symbols", options=default_watchlist,
+                                  default=default_watchlist[:2], key="bt_symbols")
+    with col2:
+        lookback_months = st.select_slider("Lookback (months)", options=[1, 2, 3, 4, 5, 6],
+                                            value=3, key="bt_lookback")
+    with col3:
+        cadence_label = st.selectbox("Decision cadence", list(_BACKTEST_CADENCE_OPTIONS.keys()),
+                                      index=1, key="bt_cadence")
+    cadence_days = _BACKTEST_CADENCE_OPTIONS[cadence_label]
+
+    est_calls = (backtest_engine.estimate_decision_count(len(symbols), lookback_months, cadence_days)
+                 if symbols else 0)
+    over_cap = est_calls > _BACKTEST_MAX_CALLS
+
+    if not symbols:
+        st.caption("Select at least one symbol to run a backtest.")
+    else:
+        est_minutes_low, est_minutes_high = est_calls * 0.6 / 60, est_calls * 1.5 / 60
+        st.caption(
+            f"Estimated ~{est_calls} live Groq calls (the exact same decision call the live agent "
+            f"makes) — roughly {est_minutes_low:.0f}–{est_minutes_high:.0f} min and real API quota. "
+            f"Capped at {_BACKTEST_MAX_CALLS} calls per run."
+        )
+    if over_cap:
+        embed(ui.render_inline_alert(
+            f"This configuration is estimated at {est_calls} calls, above the {_BACKTEST_MAX_CALLS}-call "
+            f"cap for a single run. Reduce symbols, shorten the lookback, or widen the cadence.", "error",
+        ))
+
+    run_clicked = st.button("▶️ Run Backtest", type="primary",
+                             disabled=(not symbols or over_cap), key="bt_run_button")
+
+    cache_path = _backtest_cache_path()
+
+    if run_clicked:
+        progress_placeholder = st.empty()
+        status_placeholder = st.empty()
+        progress_bar = progress_placeholder.progress(0)
+
+        def _progress(step: int, total: int, sym: str, dt) -> None:
+            progress_bar.progress(min(100, int((step / max(1, total)) * 100)))
+            status_placeholder.caption(f"Evaluating {sym} — {dt} ({step + 1}/{total})")
+
+        try:
+            result = backtest_engine.run_backtest(
+                client=client, symbols=symbols, lookback_months=lookback_months,
+                cadence_days=cadence_days, progress_cb=_progress,
+            )
+        except Exception as e:
+            progress_placeholder.empty()
+            status_placeholder.empty()
+            embed(ui.render_inline_alert(f"Backtest failed: {html.escape(str(e))}", "error"))
+            return
+
+        progress_placeholder.empty()
+        status_placeholder.empty()
+
+        result_dict = dataclasses.asdict(result)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w") as f:
+            json.dump(result_dict, f, indent=2)
+        st.session_state["_backtest_result"] = result_dict
+        st.session_state["_flash"] = ("success", "Backtest complete — see results below.")
+        st.rerun()
+
+    result_dict = st.session_state.get("_backtest_result")
+    if result_dict is None and cache_path.exists():
+        with open(cache_path) as f:
+            result_dict = json.load(f)
+        st.session_state["_backtest_result"] = result_dict
+
+    section_divider()
+
+    if result_dict is None:
+        embed(ui.render_inline_alert(
+            "No backtest has been run yet. Configure symbols above and click 'Run Backtest' — this "
+            "makes real Groq calls and can take a few minutes."
+        ))
+        return
+
+    generated_at = str(result_dict.get("generated_at", ""))[:19].replace("T", " ")
+    section_title(
+        f"Results — {', '.join(result_dict['symbols'])} · {result_dict['start_date']} to "
+        f"{result_dict['end_date']} · generated {generated_at} UTC", level="sm",
+    )
+
+    win_rate = result_dict.get("win_rate")
+    sharpe = result_dict.get("sharpe_ratio")
+    total_return = result_dict["total_return_pct"]
+    cards = [
+        {"label": "Total Return", "display": f"{total_return:+.2f}%", "raw": total_return,
+         "format": "plain", "tone": "positive" if total_return >= 0 else "negative"},
+        {"label": "Sharpe Ratio", "display": f"{sharpe:.2f}" if sharpe is not None else "—",
+         "raw": None, "format": "plain", "tone": "neutral"},
+        {"label": "Win Rate", "display": f"{win_rate:.0%}" if win_rate is not None else "—",
+         "raw": None, "format": "plain", "tone": "neutral"},
+        {"label": "Max Drawdown", "display": f"{result_dict['max_drawdown_pct']:.2f}%",
+         "raw": None, "format": "plain", "tone": "negative"},
+        {"label": "Trades (W/L)", "display": f"{result_dict['winning_trades']} / {result_dict['losing_trades']}",
+         "raw": None, "format": "plain", "tone": "neutral"},
+        {"label": "LLM Errors", "display": str(result_dict["llm_errors"]), "raw": None,
+         "format": "plain", "tone": "neutral" if result_dict["llm_errors"] == 0 else "negative"},
+    ]
+    embed(ui.render_stat_cards(cards))
+
+    section_divider()
+    section_title("Simulated Equity Curve", "📈", level="md")
+    curve = result_dict.get("equity_curve") or []
+    if len(curve) >= 2:
+        curve_df = pd.DataFrame(curve)
+        fig = go.Figure(go.Scatter(
+            x=curve_df["date"], y=curve_df["equity"], mode="lines",
+            line=dict(color=ACCENT2, width=2.2),
+            hovertemplate="%{x}<br>$%{y:,.2f}<extra></extra>",
+        ))
+        fig.update_layout(
+            height=280,
+            margin=dict(l=10, r=10, t=10, b=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color=ICE, family="Inter"),
+            xaxis=dict(gridcolor="rgba(169, 180, 245, 0.10)", linecolor="rgba(124, 111, 240, 0.25)"),
+            yaxis=dict(gridcolor="rgba(169, 180, 245, 0.10)", linecolor="rgba(124, 111, 240, 0.25)", tickprefix="$"),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        embed(ui.render_inline_alert("Not enough simulated decision points to plot an equity curve."))
+
+    section_divider()
+    section_title("Simulated Trade Log", "📜", level="md")
+    embed(ui.render_backtest_trades(result_dict.get("trades") or []))
 
 
 def render_view_docs(client: AlpacaClient) -> None:
@@ -897,7 +1094,7 @@ def render_view_docs(client: AlpacaClient) -> None:
 
     st.markdown(
         "An autonomous, explainable paper-trading agent built for the Alpaca AI Trading Agents "
-        "Hackathon (lablab.ai). Gemini reasons over live Alpaca market data and technical "
+        "Hackathon (lablab.ai). GPT-OSS-120B (via Groq) reasons over live Alpaca market data and technical "
         "indicators to propose stock buy/sell/hold calls and defined-risk options strategies "
         "(covered calls, cash-secured puts). It never sizes or executes a trade on its own — a "
         "fully deterministic risk manager and exit engine independently gate every decision, and "
@@ -980,15 +1177,15 @@ def render_view_settings(client: AlpacaClient, options_client: OptionsClient) ->
     kv_grid([
         ("Execution Backend", client.execution_backend.upper()),
         ("Paper Trading", "Yes" if client.paper else "NO — LIVE"),
-        ("Gemini Model (GEMINI_MODEL)", os.getenv("GEMINI_MODEL", "gemini-2.5-flash (default)")),
+        ("Groq Model (GROQ_MODEL)", os.getenv("GROQ_MODEL", "openai/gpt-oss-120b (default)")),
     ])
 
 
 def render_sidebar_brand() -> None:
     st.sidebar.markdown(
         '<div class="brand-block">'
-        '<div class="brand-logo-row"><span class="brand-emoji">🦙</span>'
-        '<div><div class="brand-name">Alpaca AI</div>'
+        '<div class="brand-logo-row"><span class="brand-mark">Q</span>'
+        '<div><div class="brand-name">QASIX AI</div>'
         '<div class="brand-tag">Autonomous Trading Agent</div></div></div>'
         '</div>',
         unsafe_allow_html=True,
@@ -1019,7 +1216,7 @@ def render_sidebar_run_controls(client: AlpacaClient, options_client: OptionsCli
     dry_run = st.sidebar.checkbox("Dry run (decide only, no orders)", value=True)
     if st.sidebar.button("▶️ Run agent cycle now", type="primary"):
         symbols = [s.strip().upper() for s in watchlist_input.split(",") if s.strip()]
-        with st.spinner("Agent is analyzing the market and consulting Gemini..."):
+        with st.spinner("Agent is analyzing the market and consulting GPT-OSS-120B (Groq)..."):
             agent = TradingAgent(alpaca_client=client, dry_run=dry_run)
             agent.run_cycle(symbols)
         st.session_state["_flash"] = ("success", "Cycle complete.")
@@ -1056,9 +1253,9 @@ def render_sidebar_run_controls(client: AlpacaClient, options_client: OptionsCli
 def main() -> None:
     inject_css()
 
-    st.markdown('<div class="app-title">🦙 Alpaca AI Trading Agent</div>', unsafe_allow_html=True)
+    st.markdown('<div class="app-title">◆ QASIX AI Trading Agent</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="app-subtitle">An autonomous, Gemini-powered paper trading agent '
+        '<div class="app-subtitle">An autonomous, GPT-OSS-120B-powered paper trading agent '
         'built on Alpaca\'s Trading API.</div>',
         unsafe_allow_html=True,
     )
@@ -1069,7 +1266,7 @@ def main() -> None:
     except ValueError as e:
         embed(ui.render_inline_alert(
             f"{html.escape(str(e))} Copy <code>.env.example</code> to <code>.env</code> and fill in "
-            f"your Alpaca + Google Gemini API keys.", "error",
+            f"your Alpaca + Groq API keys.", "error",
         ))
         return
 
@@ -1105,6 +1302,10 @@ def main() -> None:
         render_view_decision_history()
     elif view == "Performance":
         render_view_performance()
+    elif view == "Backtest":
+        render_view_backtest(client)
+    elif view == "Risk Gates":
+        render_view_risk_gates()
     elif view == "Methodology":
         render_view_strategy()
     elif view == "Docs":

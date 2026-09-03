@@ -1,12 +1,23 @@
 """
-The reasoning core of the trading agent — powered by Google's Gemini API
-(free tier, no credit card required: https://aistudio.google.com/apikey).
+The reasoning core of the trading agent — powered by Groq's OpenAI-compatible
+chat completions API (genuinely free tier, no credit card required:
+https://console.groq.com/keys), running GPT-OSS-120B by default (Llama 3.3
+70B is no longer offered on Groq's model list as of this writing --
+GPT-OSS-120B is the closest available strong general-purpose model; swap
+GROQ_MODEL to whatever's current at https://console.groq.com/docs/models
+if that changes again).
 
-Sends Gemini a structured snapshot of account state, current position
-(if any), and technical indicators for a single symbol, and forces a
-structured JSON decision back via response_schema so the output is
-always machine-parseable and includes a human-readable rationale for
-the dashboard / pitch video.
+Sends the model a structured snapshot of account state, current position
+(if any), and technical indicators for a single symbol, and asks for JSON
+output via Groq's JSON mode (response_format={"type": "json_object"}).
+Groq's JSON mode guarantees syntactically valid JSON but not schema
+conformance the way Gemini's response_schema parameter did, so the schema
+itself is spelled out in the prompt (see _json_response_instructions()) and
+the parsed response is validated against the same Pydantic schema classes
+below before being trusted -- a malformed/incomplete response raises
+(ValidationError or JSONDecodeError) the same way a Gemini API error used
+to, and is caught by the same per-symbol try/except in trading_agent.py /
+options_trading_agent.py, so one bad call never crashes a whole cycle.
 """
 
 from __future__ import annotations
@@ -16,9 +27,11 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from google import genai
-from google.genai import types
+from groq import Groq
 from pydantic import BaseModel, Field
+
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+REQUEST_TIMEOUT_SECONDS = 60.0
 
 
 class TradeDecisionSchema(BaseModel):
@@ -44,6 +57,22 @@ Rules you must follow:
 """
 
 
+def _json_response_instructions(schema_model: type[BaseModel]) -> str:
+    """Groq's JSON mode (response_format={'type': 'json_object'}) only
+    guarantees valid JSON syntax, not conformance to a particular shape --
+    unlike Gemini's response_schema parameter, there's no out-of-band way to
+    pin the schema, so it has to be spelled out in the prompt itself."""
+    return (
+        "Respond with a single JSON object only -- no markdown code fences, no explanation "
+        "before or after it -- matching exactly this JSON Schema:\n\n"
+        f"{json.dumps(schema_model.model_json_schema(), indent=2)}"
+    )
+
+
+def _parse_json_response(raw_text: str) -> dict:
+    return json.loads(raw_text.strip())
+
+
 @dataclass
 class TradeDecision:
     symbol: str
@@ -56,14 +85,14 @@ class TradeDecision:
 
 class LLMTradingAgent:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        key = api_key or os.getenv("GOOGLE_API_KEY")
+        key = api_key or os.getenv("GROQ_API_KEY")
         if not key:
             raise ValueError(
-                "Missing Google Gemini API key. Set GOOGLE_API_KEY in your .env file "
-                "(get a free key at https://aistudio.google.com/apikey — no card required)."
+                "Missing Groq API key. Set GROQ_API_KEY in your .env file "
+                "(get a genuinely free key at https://console.groq.com/keys — no card required)."
             )
-        self.client = genai.Client(api_key=key)
-        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.client = Groq(api_key=key, timeout=REQUEST_TIMEOUT_SECONDS)
+        self.model = model or os.getenv("GROQ_MODEL", DEFAULT_MODEL)
 
     def decide(
         self,
@@ -79,28 +108,29 @@ class LLMTradingAgent:
             "current_position": current_position or "none",
         }
 
-        response = self.client.models.generate_content(
+        response = self.client.chat.completions.create(
             model=self.model,
-            contents=(
-                "Here is the current market snapshot. Decide buy, sell, or hold for "
-                f"{symbol} and record your decision.\n\n{json.dumps(user_payload, indent=2)}"
-            ),
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=TradeDecisionSchema,
-                temperature=0.3,
-            ),
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": _json_response_instructions(TradeDecisionSchema)},
+                {"role": "user", "content": (
+                    "Here is the current market snapshot. Decide buy, sell, or hold for "
+                    f"{symbol} and record your decision.\n\n{json.dumps(user_payload, indent=2)}"
+                )},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
         )
 
-        result = json.loads(response.text)
+        raw = _parse_json_response(response.choices[0].message.content)
+        validated = TradeDecisionSchema(**raw)
 
         return TradeDecision(
             symbol=symbol,
-            action=result["action"].lower().strip(),
-            confidence=float(result["confidence"]),
-            reasoning=result["reasoning"],
-            risk_note=result["risk_note"],
+            action=validated.action.lower().strip(),
+            confidence=float(validated.confidence),
+            reasoning=validated.reasoning,
+            risk_note=validated.risk_note,
             raw_features=features,
         )
 
@@ -154,14 +184,14 @@ class OptionsTradeDecision:
 
 class OptionsLLMAgent:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        key = api_key or os.getenv("GOOGLE_API_KEY")
+        key = api_key or os.getenv("GROQ_API_KEY")
         if not key:
             raise ValueError(
-                "Missing Google Gemini API key. Set GOOGLE_API_KEY in your .env file "
-                "(get a free key at https://aistudio.google.com/apikey — no card required)."
+                "Missing Groq API key. Set GROQ_API_KEY in your .env file "
+                "(get a genuinely free key at https://console.groq.com/keys — no card required)."
             )
-        self.client = genai.Client(api_key=key)
-        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.client = Groq(api_key=key, timeout=REQUEST_TIMEOUT_SECONDS)
+        self.model = model or os.getenv("GROQ_MODEL", DEFAULT_MODEL)
 
     def decide_option(
         self,
@@ -181,31 +211,29 @@ class OptionsLLMAgent:
             "current_option_position": current_option_position or "none",
         }
 
-        response = self.client.models.generate_content(
+        response = self.client.chat.completions.create(
             model=self.model,
-            contents=(
-                "Here is the current options snapshot. Decide the appropriate options "
-                f"action for {symbol}.\n\n{json.dumps(user_payload, indent=2, default=str)}"
-            ),
-            config=types.GenerateContentConfig(
-                system_instruction=OPTIONS_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=OptionsDecisionSchema,
-                temperature=0.3,
-                # A stalled connection can otherwise hang this call indefinitely
-                # (observed live) since the SDK has no default timeout.
-                http_options=types.HttpOptions(timeout=60_000),
-            ),
+            messages=[
+                {"role": "system", "content": OPTIONS_SYSTEM_PROMPT},
+                {"role": "system", "content": _json_response_instructions(OptionsDecisionSchema)},
+                {"role": "user", "content": (
+                    "Here is the current options snapshot. Decide the appropriate options "
+                    f"action for {symbol}.\n\n{json.dumps(user_payload, indent=2, default=str)}"
+                )},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.3,
         )
 
-        result = json.loads(response.text)
+        raw = _parse_json_response(response.choices[0].message.content)
+        validated = OptionsDecisionSchema(**raw)
 
         return OptionsTradeDecision(
             symbol=symbol,
-            action=result["action"].lower().strip(),
-            contract_symbol=result.get("contract_symbol", "").strip(),
-            confidence=float(result["confidence"]),
-            reasoning=result["reasoning"],
-            risk_note=result["risk_note"],
+            action=validated.action.lower().strip(),
+            contract_symbol=validated.contract_symbol.strip(),
+            confidence=float(validated.confidence),
+            reasoning=validated.reasoning,
+            risk_note=validated.risk_note,
             raw_context=user_payload,
         )

@@ -4,7 +4,7 @@ Orchestrates one full options agent cycle, mirroring trading_agent.py:
   for each symbol in the options watchlist:
       1. pull recent bars + technical indicators for the underlying
       2. fetch covered-call and cash-secured-put candidates from Alpaca
-      3. ask Gemini which (if any) defined-risk strategy to open/close
+      3. ask the LLM (GPT-OSS-120B via Groq) which (if any) defined-risk strategy to open/close
       4. pass that decision through the deterministic options risk manager
       5. execute the resulting order on Alpaca paper trading (if approved)
       6. log everything, tagged asset_class="option", for the dashboard

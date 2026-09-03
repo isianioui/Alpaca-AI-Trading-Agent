@@ -4,7 +4,7 @@ Orchestrates one full agent cycle:
   for each symbol in the watchlist:
       1. pull recent bars from Alpaca
       2. compute technical indicators
-      3. ask Gemini for a buy/sell/hold decision + reasoning
+      3. ask the LLM (GPT-OSS-120B via Groq) for a buy/sell/hold decision + reasoning
       4. pass that decision through the deterministic risk manager
       5. execute the resulting order on Alpaca paper trading (if approved)
       6. log everything for the dashboard / audit trail
