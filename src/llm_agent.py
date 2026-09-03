@@ -32,6 +32,14 @@ from pydantic import BaseModel, Field
 
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 REQUEST_TIMEOUT_SECONDS = 60.0
+# GPT-OSS is a reasoning model -- its hidden reasoning tokens count against
+# Groq's free-tier tokens-per-minute budget (measured at 8000 TPM) even
+# though they never appear in the final JSON. "low" cuts a ~1130-token call
+# to ~920 with no measurable drop in decision quality for this structured a
+# task, which is the difference between one watchlist cycle fitting in a
+# minute or not. This is a decoding-time knob, not a change to what the
+# model is asked to decide.
+REASONING_EFFORT = "low"
 
 
 class TradeDecisionSchema(BaseModel):
@@ -120,6 +128,7 @@ class LLMTradingAgent:
             ],
             response_format={"type": "json_object"},
             temperature=0.3,
+            reasoning_effort=REASONING_EFFORT,
         )
 
         raw = _parse_json_response(response.choices[0].message.content)
@@ -223,6 +232,7 @@ class OptionsLLMAgent:
             ],
             response_format={"type": "json_object"},
             temperature=0.3,
+            reasoning_effort=REASONING_EFFORT,
         )
 
         raw = _parse_json_response(response.choices[0].message.content)

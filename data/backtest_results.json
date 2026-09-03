@@ -1,0 +1,242 @@
+{
+  "symbols": [
+    "AAPL",
+    "MSFT"
+  ],
+  "start_date": "2026-06-04",
+  "end_date": "2026-09-03",
+  "cadence_days": 3,
+  "starting_equity": 100000.0,
+  "ending_equity": 99568.53,
+  "equity_curve": [
+    {
+      "date": "2026-06-04",
+      "equity": 100000.0
+    },
+    {
+      "date": "2026-06-04",
+      "equity": 100000.0
+    },
+    {
+      "date": "2026-06-09",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-09",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-12",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-12",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-17",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-17",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-23",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-23",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-26",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-06-26",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-01",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-01",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-07",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-07",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-10",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-10",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-15",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-15",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-20",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-20",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-23",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-23",
+      "equity": 99712.18
+    },
+    {
+      "date": "2026-07-28",
+      "equity": 99997.69
+    },
+    {
+      "date": "2026-07-28",
+      "equity": 99997.69
+    },
+    {
+      "date": "2026-07-31",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-07-31",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-05",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-05",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-10",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-10",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-13",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-13",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-18",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-18",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-21",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-21",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-26",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-26",
+      "equity": 99514.56
+    },
+    {
+      "date": "2026-08-31",
+      "equity": 99568.53
+    },
+    {
+      "date": "2026-08-31",
+      "equity": 99568.53
+    }
+  ],
+  "trades": [
+    {
+      "symbol": "MSFT",
+      "action": "BUY",
+      "date": "2026-06-04",
+      "price": 428.05,
+      "qty": 11.6809,
+      "reason": "The price (428.05) sits above both the 20\u2011day SMA (422.79) and the 50\u2011day SMA (407.44), indicating an uptrend, and the MACD histogram is positive (0.6982), show",
+      "pnl": null,
+      "pnl_pct": null
+    },
+    {
+      "symbol": "MSFT",
+      "action": "SELL",
+      "date": "2026-06-09",
+      "price": 403.41,
+      "qty": 11.6809,
+      "reason": "llm_decision (-5.76%)",
+      "pnl": -287.81737599999985,
+      "pnl_pct": -0.05756336876533112
+    },
+    {
+      "symbol": "AAPL",
+      "action": "BUY",
+      "date": "2026-07-23",
+      "price": 321.66,
+      "qty": 15.4996,
+      "reason": "The price (321.66) sits about 3.3% above the 20\u2011day SMA and above the 50\u2011day SMA, indicating bullish trend. MACD histogram is positive (0.7964) and RSI is at 62",
+      "pnl": null,
+      "pnl_pct": null
+    },
+    {
+      "symbol": "AAPL",
+      "action": "SELL",
+      "date": "2026-07-31",
+      "price": 308.91,
+      "qty": 15.4996,
+      "reason": "llm_decision (-3.96%)",
+      "pnl": -197.6199,
+      "pnl_pct": -0.03963812721507181
+    },
+    {
+      "symbol": "AAPL",
+      "action": "BUY",
+      "date": "2026-08-26",
+      "price": 313.45,
+      "qty": 15.8741,
+      "reason": "The stock is trading above both the 20\u2011day (310.26) and 50\u2011day (311.22) SMAs, with a 1.03% premium to the 20\u2011day SMA, and posted a 1.15% daily gain. The MACD hi",
+      "pnl": null,
+      "pnl_pct": null
+    }
+  ],
+  "decisions_evaluated": 42,
+  "llm_errors": 0,
+  "total_return_pct": -0.43,
+  "win_rate": 0.0,
+  "winning_trades": 0,
+  "losing_trades": 2,
+  "sharpe_ratio": -0.97,
+  "max_drawdown_pct": -0.49,
+  "generated_at": "2026-09-03T01:40:25.544807+00:00"
+}
