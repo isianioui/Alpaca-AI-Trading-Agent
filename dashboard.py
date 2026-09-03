@@ -465,7 +465,13 @@ def _prep_decision_record(d: dict) -> dict:
     dry_run = bool(d.get("dry_run"))
     order_placed = d.get("order") is not None
 
-    if order_placed:
+    if d.get("execution_status") == "skipped_market_closed":
+        # Risk-approved, but Alpaca rejects options market orders outright
+        # outside regular market hours -- this is expected, correct behavior,
+        # not a risk-manager rejection, so it gets its own distinct state
+        # rather than being lumped into "blocked" or "approved, no order".
+        status_class, status_label = "market-closed", "MARKET CLOSED — ORDER DEFERRED"
+    elif order_placed:
         status_class, status_label = "executed", "EXECUTED"
     elif risk_approved and dry_run:
         status_class, status_label = "approved-dry", "APPROVED (DRY RUN — NO ORDER PLACED)"
@@ -809,6 +815,8 @@ def _decision_bucket(d: dict) -> str:
     actual filtering never drift apart."""
     if d.get("status") == "error":
         return "errors"
+    if d.get("execution_status") == "skipped_market_closed":
+        return "market_closed"
     if d.get("trigger") == "exit_engine":
         return "exits"
     order_placed = d.get("order") is not None
@@ -838,6 +846,7 @@ def render_view_decision_history() -> None:
         "executed": buckets.count("executed"),
         "dry_run": buckets.count("dry_run"),
         "blocked": buckets.count("blocked"),
+        "market_closed": buckets.count("market_closed"),
         "exits": buckets.count("exits"),
         "errors": buckets.count("errors"),
     }
@@ -846,6 +855,7 @@ def render_view_decision_history() -> None:
         ("executed", f"EXECUTED · {counts['executed']}"),
         ("dry_run", f"DRY RUN · {counts['dry_run']}"),
         ("blocked", f"BLOCKED · {counts['blocked']}"),
+        ("market_closed", f"MARKET CLOSED · {counts['market_closed']}"),
         ("exits", f"EXITS · {counts['exits']}"),
         ("errors", f"ERRORS · {counts['errors']}"),
     ]

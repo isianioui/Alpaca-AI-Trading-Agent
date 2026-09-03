@@ -166,6 +166,19 @@ def cmd_exit_check(args) -> None:
 
 def cmd_options_loop(args) -> None:
     watchlist = get_option_watchlist(args.symbols)
+
+    # Purely a convenience for running `loop` and `options-loop` as two
+    # concurrent processes -- both call Groq once per symbol against the same
+    # free-tier rate limit, so staggering their first cycle (in addition to
+    # the per-symbol GROQ_CALL_DELAY_SECONDS pause within each cycle) means
+    # they're not both firing a burst of calls at the exact same moment.
+    # Off by default; set LOOP_START_OFFSET_SECONDS to a nonzero value on
+    # whichever loop should start second.
+    start_offset = float(os.getenv("LOOP_START_OFFSET_SECONDS", "0"))
+    if start_offset > 0:
+        print(f"Delaying first options cycle by {start_offset}s (LOOP_START_OFFSET_SECONDS)...")
+        time.sleep(start_offset)
+
     print(f"Starting continuous options loop every {args.interval}s over: {watchlist}")
     print("Press Ctrl+C to stop.\n")
 

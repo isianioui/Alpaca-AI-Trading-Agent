@@ -16,6 +16,8 @@ into, so there's a single source of truth for agent behavior.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import Optional
 
 from src import trade_history
@@ -27,6 +29,15 @@ from src.risk_manager import RiskLimits, RiskManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("trading_agent")
+
+# Small pause between each symbol's Groq call within a cycle. Both trading_agent
+# and options_trading_agent make one Groq call per symbol, and the user often
+# runs `loop` and `options-loop` as two concurrent processes -- without this,
+# every symbol in both watchlists fires its Groq call back-to-back at the top
+# of each cycle and reliably trips the free-tier rate limit (429s). Groq's
+# free tier is measured at 8000 TPM; this delay is what keeps a full watchlist
+# cycle under that budget without relying solely on retry-with-backoff.
+GROQ_CALL_DELAY_SECONDS = float(os.getenv("GROQ_CALL_DELAY_SECONDS", "1.5"))
 
 
 class TradingAgent:
@@ -46,27 +57,36 @@ class TradingAgent:
         """Run one full pass over the watchlist. Returns the list of decision records."""
         account = self.alpaca.get_account()
         positions = {p["symbol"]: p for p in self.alpaca.get_positions()}
+        # Stock day-orders queue and fill at the next open even when the market
+        # is currently closed, so this doesn't gate submission the way it does
+        # for options -- it's recorded on every decision purely for visibility
+        # into market state, consistent with the options pipeline.
+        market_is_open = self.alpaca.is_market_open()
         results = []
 
         daily_pnl_pct = account.daily_pnl_pct
         if self.risk.circuit_breaker_tripped(daily_pnl_pct):
             logger.warning("Circuit breaker tripped (daily P&L %.2f%%). Skipping cycle.", daily_pnl_pct * 100)
 
-        for symbol in watchlist:
-            record = self._process_symbol(symbol, account, positions, daily_pnl_pct)
+        for i, symbol in enumerate(watchlist):
+            record = self._process_symbol(symbol, account, positions, daily_pnl_pct, market_is_open)
             results.append(record)
             log_decision(record)
+            if i < len(watchlist) - 1 and GROQ_CALL_DELAY_SECONDS > 0:
+                time.sleep(GROQ_CALL_DELAY_SECONDS)
 
         return results
 
-    def _process_symbol(self, symbol: str, account, positions: dict, daily_pnl_pct: float) -> dict:
+    def _process_symbol(
+        self, symbol: str, account, positions: dict, daily_pnl_pct: float, market_is_open: bool,
+    ) -> dict:
         try:
             bars = self.alpaca.get_bars(symbol, lookback_days=90)
             features = build_feature_snapshot(bars)
 
             if "error" in features:
                 return {"symbol": symbol, "action": "hold", "status": "skipped",
-                         "reason": "Not enough price history yet."}
+                         "reason": "Not enough price history yet.", "market_open": market_is_open}
 
             current_position = positions.get(symbol)
 
@@ -124,6 +144,7 @@ class TradingAgent:
                 "risk_approved": risk_result.approved,
                 "risk_reason": risk_result.reason,
                 "order": order_result,
+                "market_open": market_is_open,
                 "dry_run": self.dry_run,
                 "status": "ok",
             }

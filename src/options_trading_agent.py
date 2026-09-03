@@ -18,6 +18,8 @@ stock flow are untouched.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import Optional
 
 from src import trade_history
@@ -30,6 +32,11 @@ from src.risk_manager import OptionsRiskManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("options_trading_agent")
+
+# See trading_agent.py's GROQ_CALL_DELAY_SECONDS for why this exists: one Groq
+# call per symbol, and this loop often runs concurrently with the stock loop
+# against the same free-tier rate limit.
+GROQ_CALL_DELAY_SECONDS = float(os.getenv("GROQ_CALL_DELAY_SECONDS", "1.5"))
 
 
 class OptionsTradingAgent:
@@ -56,6 +63,12 @@ class OptionsTradingAgent:
         existing_options_collateral = sum(
             p["strike"] * 100 * abs(p["qty"]) for p in option_positions if p["option_type"] == "put"
         )
+        # Options market orders are rejected outright by Alpaca outside
+        # regular market hours (422 "options market orders are only allowed
+        # during market hours") -- checked once per cycle so every symbol's
+        # order-submission decision (below) can skip cleanly instead of
+        # attempting the order and catching the resulting error.
+        market_is_open = self.alpaca.is_market_open()
         results = []
 
         daily_pnl_pct = account.daily_pnl_pct
@@ -63,13 +76,15 @@ class OptionsTradingAgent:
             logger.warning("Circuit breaker tripped (daily P&L %.2f%%). Skipping options cycle.",
                             daily_pnl_pct * 100)
 
-        for symbol in watchlist:
+        for i, symbol in enumerate(watchlist):
             record = self._process_symbol(
                 symbol, account, stock_positions, option_positions_by_underlying,
-                existing_options_collateral, len(option_positions), daily_pnl_pct,
+                existing_options_collateral, len(option_positions), daily_pnl_pct, market_is_open,
             )
             results.append(record)
             log_decision(record)
+            if i < len(watchlist) - 1 and GROQ_CALL_DELAY_SECONDS > 0:
+                time.sleep(GROQ_CALL_DELAY_SECONDS)
 
         return results
 
@@ -82,6 +97,7 @@ class OptionsTradingAgent:
         existing_options_collateral: float,
         open_option_position_count: int,
         daily_pnl_pct: float,
+        market_is_open: bool,
     ) -> dict:
         try:
             shares_held = stock_positions.get(symbol, {}).get("qty", 0.0)
@@ -138,16 +154,27 @@ class OptionsTradingAgent:
             )
 
             order_result = None
-            if risk_result.approved and not self.dry_run:
-                if decision.action in ("open_covered_call", "open_cash_secured_put"):
+            execution_status = None
+            needs_order = decision.action in ("open_covered_call", "open_cash_secured_put") or (
+                decision.action == "close_position" and current_option_position is not None
+            )
+            if risk_result.approved and not self.dry_run and needs_order:
+                if not market_is_open:
+                    # Alpaca rejects options market orders outright outside
+                    # regular market hours -- this is expected, not an error,
+                    # so execution is deferred rather than attempted and caught.
+                    execution_status = "skipped_market_closed"
+                elif decision.action in ("open_covered_call", "open_cash_secured_put"):
                     order_result = self.options.submit_option_order(
                         contract_symbol=decision.contract_symbol,
                         qty=risk_result.qty,
                         side="sell",
                         position_intent="sell_to_open",
                     )
-                elif decision.action == "close_position" and current_option_position:
+                    execution_status = "executed"
+                elif decision.action == "close_position":
                     order_result = self.options.close_option_position(current_option_position["symbol"])
+                    execution_status = "executed" if order_result else execution_status
                     if order_result:
                         trade_history.record_closed_trade(
                             symbol=symbol,
@@ -177,6 +204,8 @@ class OptionsTradingAgent:
                 "risk_approved": risk_result.approved,
                 "risk_reason": risk_result.reason,
                 "order": order_result,
+                "market_open": market_is_open,
+                "execution_status": execution_status,
                 "dry_run": self.dry_run,
                 "status": "ok",
             }

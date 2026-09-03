@@ -143,6 +143,12 @@ class AlpacaClient:
             "next_close": clock.next_close,
         }
 
+    def is_market_open(self) -> bool:
+        """Convenience wrapper around get_market_clock() -- options market
+        orders are rejected outright by Alpaca outside regular market hours,
+        so callers check this before submitting one."""
+        return bool(self.get_market_clock()["is_open"])
+
     def get_open_orders(self) -> list[dict]:
         orders = self.trading_client.get_orders()
         return [

@@ -33,6 +33,7 @@ NAVY_MID = "#141A34"
 ICE = "#A9B4F5"
 GREEN = "#34D399"
 RED = "#FB7185"
+AMBER = "#FBBF24"
 OFFWHITE = "#F3F5FF"
 MUTED_ON_DARK = "#7C86AC"
 ACCENT = "#7C6FF0"
@@ -701,11 +702,13 @@ _DECISION_STYLE = f"""
 .decision-card.executed {{ border-left-color: {GREEN}; }}
 .decision-card.blocked {{ border-left-color: {RED}; }}
 .decision-card.approved-dry {{ border-left-color: {ICE}; }}
+.decision-card.market-closed {{ border-left-color: {AMBER}; }}
 .decision-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.3rem; }}
 .decision-badge {{ display: inline-block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.15rem 0.55rem; border-radius: 999px; }}
 .decision-badge.executed {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.45); }}
 .decision-badge.blocked {{ background: rgba(251,113,133,0.15); color: {RED}; border: 1px solid rgba(251,113,133,0.45); }}
 .decision-badge.approved-dry {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
+.decision-badge.market-closed {{ background: rgba(251,191,36,0.15); color: {AMBER}; border: 1px solid rgba(251,191,36,0.45); }}
 .decision-meta {{ font-size: 0.75rem; color: {MUTED_ON_DARK}; font-family: 'JetBrains Mono', monospace; }}
 .decision-header {{ font-size: 1.02rem; font-weight: 800; color: {OFFWHITE}; margin-bottom: 0.15rem; }}
 .decision-quote {{ font-style: italic; color: {ICE}; font-size: 0.87rem; margin-top: 0.5rem; padding-left: 0.65rem; border-left: 2px solid rgba(124,111,240,0.3); opacity: 0.95; }}
@@ -773,24 +776,32 @@ _INDICATOR_PANEL_STYLE = f"""
 }}
 .verdict-box.pass {{ background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.35); }}
 .verdict-box.fail {{ background: rgba(251,113,133,0.10); border: 1px solid rgba(251,113,133,0.35); }}
+.verdict-box.info {{ background: rgba(251,191,36,0.10); border: 1px solid rgba(251,191,36,0.35); }}
 .verdict-icon {{ font-size: 1rem; line-height: 1.3; flex-shrink: 0; }}
 .verdict-box.pass .verdict-icon {{ color: {GREEN}; }}
 .verdict-box.fail .verdict-icon {{ color: {RED}; }}
+.verdict-box.info .verdict-icon {{ color: {AMBER}; }}
 .verdict-label {{ font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }}
 .verdict-box.pass .verdict-label {{ color: {GREEN}; }}
 .verdict-box.fail .verdict-label {{ color: {RED}; }}
+.verdict-box.info .verdict-label {{ color: {AMBER}; }}
 .verdict-text {{ color: {OFFWHITE}; }}
 """
 
 
 def _render_verdict_box(status_class: str, risk_reason: str) -> str:
     """Replaces the old plain '<b>Risk manager verdict:</b> ...' line with a
-    colored pass/fail callout so the verdict reads at a glance instead of
-    blending into the surrounding prose."""
-    passed = status_class in ("executed", "approved-dry")
-    tone = "pass" if passed else "fail"
-    icon = "&#10003;" if passed else "&#10005;"
-    label = "Risk Manager · Approved" if passed else "Risk Manager · Blocked"
+    colored pass/fail/info callout so the verdict reads at a glance instead of
+    blending into the surrounding prose. market-closed gets its own amber
+    "info" tone -- the risk manager DID approve the trade, it just wasn't
+    executed because Alpaca rejects options orders outside market hours, so
+    labeling it "Blocked" would misrepresent the risk verdict."""
+    if status_class == "market-closed":
+        tone, icon, label = "info", "&#9679;", "Risk Manager · Approved (Execution Deferred)"
+    elif status_class in ("executed", "approved-dry"):
+        tone, icon, label = "pass", "&#10003;", "Risk Manager · Approved"
+    else:
+        tone, icon, label = "fail", "&#10005;", "Risk Manager · Blocked"
     return (
         f'<div class="verdict-box {tone}"><span class="verdict-icon">{icon}</span>'
         f'<div><div class="verdict-label">{label}</div>'
@@ -994,6 +1005,7 @@ _TABLE_STYLE = f"""
 .dec-row.executed {{ border-left-color: {GREEN}; }}
 .dec-row.blocked {{ border-left-color: {RED}; }}
 .dec-row.approved-dry {{ border-left-color: {ICE}; }}
+.dec-row.market-closed {{ border-left-color: {AMBER}; }}
 .dec-cell.time {{ font-family: 'JetBrains Mono', monospace; color: {MUTED_ON_DARK}; font-size: 0.76rem; }}
 .dec-cell.symbol b {{ color: {OFFWHITE}; font-weight: 800; }}
 .dec-cell.symbol span {{ color: {MUTED_ON_DARK}; font-size: 0.78rem; margin-left: 4px; }}
@@ -1003,6 +1015,7 @@ _TABLE_STYLE = f"""
 .dec-badge.executed {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.45); }}
 .dec-badge.blocked {{ background: rgba(251,113,133,0.15); color: {RED}; border: 1px solid rgba(251,113,133,0.45); }}
 .dec-badge.approved-dry {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
+.dec-badge.market-closed {{ background: rgba(251,191,36,0.15); color: {AMBER}; border: 1px solid rgba(251,191,36,0.45); }}
 .dec-detail {{ max-height: 0; overflow: hidden; transition: max-height 0.3s ease; font-size: 0.83rem; color: {ICE}; line-height: 1.6; margin: 0 0.9rem; }}
 .dec-detail.open {{ max-height: 3000px; padding: 0.6rem 0 0.9rem 0; border-bottom: 1px solid rgba(124,111,240,0.1); }}
 .dec-detail b {{ color: {OFFWHITE}; }}
