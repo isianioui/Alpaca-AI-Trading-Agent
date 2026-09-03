@@ -48,8 +48,9 @@ load_dotenv()
 
 st.set_page_config(page_title="Alpaca AI Trading Agent", page_icon="🦙", layout="wide")
 
-NAVY, NAVY_MID, ICE, GREEN, RED, OFFWHITE, MUTED_ON_DARK = (
+NAVY, NAVY_MID, ICE, GREEN, RED, OFFWHITE, MUTED_ON_DARK, ACCENT, ACCENT2, GRADIENT = (
     ui.NAVY, ui.NAVY_MID, ui.ICE, ui.GREEN, ui.RED, ui.OFFWHITE, ui.MUTED_ON_DARK,
+    ui.ACCENT, ui.ACCENT2, ui.GRADIENT,
 )
 
 NAV_GROUPS = [
@@ -88,12 +89,34 @@ def inject_css() -> None:
         f"""
         <style>
         html, body, [class*="css"] {{ font-family: 'Inter', -apple-system, sans-serif; }}
+
+        @keyframes fadeInUp {{
+            from {{ opacity: 0; transform: translateY(10px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        @keyframes shimmerText {{
+            0%, 100% {{ background-position: 0% center; }}
+            50% {{ background-position: 100% center; }}
+        }}
+        @keyframes navItemIn {{
+            from {{ opacity: 0; transform: translateX(-10px); }}
+            to {{ opacity: 1; transform: translateX(0); }}
+        }}
+        @keyframes brandGlow {{
+            0%, 100% {{ opacity: 0.55; }}
+            50% {{ opacity: 1; }}
+        }}
+
         .stApp {{
             background-color: {NAVY};
             background-image:
-                linear-gradient(rgba(202, 220, 252, 0.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(202, 220, 252, 0.04) 1px, transparent 1px);
-            background-size: 24px 24px;
+                radial-gradient(circle at 12% 8%, rgba(124, 111, 240, 0.16) 0%, transparent 42%),
+                radial-gradient(circle at 88% 18%, rgba(34, 211, 238, 0.11) 0%, transparent 40%),
+                radial-gradient(circle at 50% 96%, rgba(124, 111, 240, 0.09) 0%, transparent 50%),
+                linear-gradient(rgba(169, 180, 245, 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(169, 180, 245, 0.035) 1px, transparent 1px);
+            background-size: auto, auto, auto, 26px 26px, 26px 26px;
+            background-attachment: fixed;
         }}
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
@@ -102,82 +125,138 @@ def inject_css() -> None:
 
         /* ---- Header ---- */
         .app-title {{
-            font-size: 2.15rem; font-weight: 800; color: {OFFWHITE};
-            margin-bottom: 0.1rem; letter-spacing: -0.02em;
+            font-size: 2.25rem; font-weight: 800; margin-bottom: 0.15rem; letter-spacing: -0.02em;
+            display: inline-block;
+            background: {GRADIENT};
+            background-size: 200% auto;
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: transparent;
+            animation: shimmerText 7s ease-in-out infinite;
         }}
         .app-subtitle {{ font-size: 0.95rem; color: {ICE}; opacity: 0.85; margin-bottom: 1.2rem; }}
-        .page-title {{ font-size: 1.5rem; font-weight: 800; color: {OFFWHITE}; margin-bottom: 0.1rem; letter-spacing: -0.01em; }}
-        .page-subtitle {{ font-size: 0.85rem; color: {MUTED_ON_DARK}; margin-bottom: 1rem; }}
+        .page-title {{
+            font-size: 1.55rem; font-weight: 800; color: {OFFWHITE}; margin-bottom: 0.35rem;
+            letter-spacing: -0.01em; position: relative; display: inline-block;
+            padding-bottom: 0.4rem; animation: fadeInUp 0.4s ease-out both;
+        }}
+        .page-title::after {{
+            content: ''; position: absolute; left: 0; bottom: 0; height: 3px; width: 46px;
+            border-radius: 3px; background: {GRADIENT};
+        }}
+        .page-subtitle {{ font-size: 0.85rem; color: {MUTED_ON_DARK}; margin-bottom: 1rem; animation: fadeInUp 0.45s ease-out both; }}
         .section-title {{ font-weight: 700; color: {OFFWHITE}; margin: 0.2rem 0 0.6rem 0; }}
         .section-title.lg {{ font-size: 1.3rem; }}
         .section-title.md {{ font-size: 1.05rem; }}
         .section-title.sm {{ font-size: 0.9rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.04em; }}
-        .section-divider {{ border: none; border-top: 1px solid rgba(202, 220, 252, 0.14); margin: 1.4rem 0; }}
+        .section-divider {{ border: none; border-top: 1px solid rgba(124, 111, 240, 0.16); margin: 1.4rem 0; }}
         .kv-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0.6rem; margin: 0.6rem 0 1rem 0; }}
-        .kv-row {{ background: rgba(30, 39, 97, 0.5); border: 1px solid rgba(202, 220, 252, 0.10); border-radius: 10px; padding: 0.6rem 0.9rem; }}
+        .kv-row {{
+            background: rgba(20, 26, 52, 0.6); border: 1px solid rgba(124, 111, 240, 0.14);
+            border-radius: 12px; padding: 0.6rem 0.9rem; transition: border-color 0.2s ease, transform 0.2s ease;
+        }}
+        .kv-row:hover {{ border-color: rgba(124, 111, 240, 0.35); transform: translateY(-1px); }}
         .kv-key {{ font-size: 0.66rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }}
         .kv-value {{ font-size: 0.92rem; font-weight: 700; color: {OFFWHITE}; font-family: 'JetBrains Mono', monospace; }}
+
+        /* ---- Sidebar brand ---- */
+        .brand-block {{ padding: 0.4rem 0.2rem 1rem 0.2rem; margin-bottom: 0.4rem; border-bottom: 1px solid rgba(124,111,240,0.14); }}
+        .brand-logo-row {{ display: flex; align-items: center; gap: 0.55rem; }}
+        .brand-emoji {{ font-size: 1.7rem; filter: drop-shadow(0 0 10px rgba(124,111,240,0.55)); animation: brandGlow 3.2s ease-in-out infinite; }}
+        .brand-name {{
+            font-size: 1.05rem; font-weight: 800; letter-spacing: -0.01em;
+            background: {GRADIENT}; background-size: 200% auto;
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: transparent;
+            animation: shimmerText 7s ease-in-out infinite;
+        }}
+        .brand-tag {{ font-size: 0.68rem; color: {MUTED_ON_DARK}; margin-top: 2px; letter-spacing: 0.03em; }}
 
         /* ================= Native widgets, fully re-skinned ================= */
 
         /* Buttons -- no default Streamlit shape/shadow/focus ring anywhere */
         div[data-testid="stButton"] button, div[data-testid="stFormSubmitButton"] button {{
-            border-radius: 10px !important;
-            border: 1px solid rgba(202, 220, 252, 0.16) !important;
-            background: rgba(30, 39, 97, 0.55) !important;
+            border-radius: 11px !important;
+            border: 1px solid rgba(124, 111, 240, 0.22) !important;
+            background: rgba(20, 26, 52, 0.6) !important;
             color: {OFFWHITE} !important;
             font-weight: 600 !important;
             box-shadow: none !important;
-            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease !important;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.15s ease, box-shadow 0.18s ease !important;
         }}
         div[data-testid="stButton"] button:hover {{
-            border-color: rgba(202, 220, 252, 0.35) !important;
-            background: rgba(30, 39, 97, 0.85) !important;
-            transform: translateY(-1px);
+            border-color: rgba(124, 111, 240, 0.5) !important;
+            background: rgba(30, 36, 68, 0.9) !important;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 18px rgba(124, 111, 240, 0.18) !important;
         }}
         div[data-testid="stButton"] button:active {{ transform: translateY(0); }}
-        div[data-testid="stButton"] button:focus {{ box-shadow: 0 0 0 2px rgba(31, 203, 143, 0.35) !important; }}
+        div[data-testid="stButton"] button:focus {{ box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35) !important; }}
         div[data-testid="stButton"] button[kind="primary"] {{
-            background: {GREEN} !important; border-color: {GREEN} !important; color: {NAVY} !important;
-            font-weight: 700 !important;
+            background: {GRADIENT} !important; border: none !important; color: #0A0E1E !important;
+            font-weight: 700 !important; box-shadow: 0 4px 16px rgba(124, 111, 240, 0.35) !important;
         }}
-        div[data-testid="stButton"] button[kind="primary"]:hover {{ filter: brightness(1.08); }}
+        div[data-testid="stButton"] button[kind="primary"]:hover {{
+            filter: brightness(1.1); transform: translateY(-2px);
+            box-shadow: 0 6px 22px rgba(124, 111, 240, 0.5) !important;
+        }}
 
         /* Sidebar nav rows */
         section[data-testid="stSidebar"] {{
-            background: {NAVY_MID} !important;
-            border-right: 1px solid rgba(202, 220, 252, 0.10);
+            background: linear-gradient(180deg, rgba(16, 21, 42, 0.98) 0%, rgba(9, 12, 24, 0.98) 100%) !important;
+            border-right: 1px solid rgba(124, 111, 240, 0.14);
+            box-shadow: 6px 0 26px rgba(0, 0, 0, 0.28);
         }}
         section[data-testid="stSidebar"] div[data-testid="stButton"] button {{
             width: 100%; text-align: left; justify-content: flex-start;
-            padding: 0.55rem 0.9rem !important; font-size: 0.92rem !important;
+            padding: 0.6rem 0.9rem !important; font-size: 0.92rem !important;
             background: transparent !important; border: 1px solid transparent !important;
-            border-left: 3px solid transparent !important; border-radius: 8px !important;
+            border-left: 3px solid transparent !important; border-radius: 10px !important;
+            box-shadow: none !important;
+            opacity: 0; animation: navItemIn 0.4s ease-out forwards;
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
         }}
-        section[data-testid="stSidebar"] div[data-testid="stButton"] button p {{ text-align: left; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(1) button {{ animation-delay: 0.03s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(2) button {{ animation-delay: 0.07s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(3) button {{ animation-delay: 0.11s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(4) button {{ animation-delay: 0.15s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(5) button {{ animation-delay: 0.19s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(6) button {{ animation-delay: 0.23s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(7) button {{ animation-delay: 0.27s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(8) button {{ animation-delay: 0.31s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(n+9) button {{ animation-delay: 0.34s; }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"] button p {{ text-align: left; transition: transform 0.2s ease; }}
         section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover {{
-            background: rgba(202, 220, 252, 0.06) !important; transform: none;
+            background: rgba(124, 111, 240, 0.09) !important;
+            border-left-color: rgba(124, 111, 240, 0.45) !important;
+            transform: translateX(3px);
         }}
+        section[data-testid="stSidebar"] div[data-testid="stButton"] button:hover p {{ transform: translateX(2px); }}
         section[data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {{
-            background: rgba(31, 203, 143, 0.12) !important;
-            border-left: 3px solid {GREEN} !important;
-            color: {GREEN} !important; font-weight: 700 !important;
+            background: linear-gradient(90deg, rgba(124,111,240,0.18) 0%, rgba(34,211,238,0.08) 100%) !important;
+            border-left: 3px solid {ACCENT2} !important;
+            color: {OFFWHITE} !important; font-weight: 700 !important;
+            box-shadow: inset 0 0 0 1px rgba(124,111,240,0.14), 0 0 16px rgba(124,111,240,0.18) !important;
         }}
         .nav-group-label {{
             font-size: 0.64rem; font-weight: 800; color: {MUTED_ON_DARK};
-            text-transform: uppercase; letter-spacing: 0.09em; margin: 1rem 0 0.3rem 0.2rem;
+            text-transform: uppercase; letter-spacing: 0.1em; margin: 1.1rem 0 0.4rem 0.2rem;
+            display: flex; align-items: center; gap: 6px;
+        }}
+        .nav-group-label::before {{
+            content: ''; width: 4px; height: 4px; border-radius: 50%; background: {GRADIENT}; flex-shrink: 0;
         }}
         .nav-group-label.first {{ margin-top: 0.1rem; }}
 
         /* Text inputs */
         div[data-testid="stTextInput"] input {{
-            background: rgba(22, 36, 71, 0.65) !important;
-            border: 1px solid rgba(202, 220, 252, 0.18) !important;
-            border-radius: 9px !important; color: {OFFWHITE} !important;
+            background: rgba(16, 21, 42, 0.7) !important;
+            border: 1px solid rgba(124, 111, 240, 0.24) !important;
+            border-radius: 10px !important; color: {OFFWHITE} !important;
             font-family: 'JetBrains Mono', monospace !important;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease !important;
         }}
         div[data-testid="stTextInput"] input:focus {{
-            border-color: {GREEN} !important; box-shadow: 0 0 0 2px rgba(31, 203, 143, 0.25) !important;
+            border-color: {ACCENT2} !important; box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.25) !important;
         }}
         div[data-testid="stTextInput"] label, div[data-testid="stCheckbox"] label p,
         div[data-testid="stSelectbox"] label, div[data-testid="stRadio"] label {{
@@ -189,25 +268,28 @@ def inject_css() -> None:
 
         /* Selectbox (filters) */
         div[data-testid="stSelectbox"] > div > div {{
-            background: rgba(22, 36, 71, 0.65) !important;
-            border: 1px solid rgba(202, 220, 252, 0.18) !important;
-            border-radius: 9px !important; color: {OFFWHITE} !important;
+            background: rgba(16, 21, 42, 0.7) !important;
+            border: 1px solid rgba(124, 111, 240, 0.24) !important;
+            border-radius: 10px !important; color: {OFFWHITE} !important;
+            transition: border-color 0.18s ease !important;
         }}
+        div[data-testid="stSelectbox"] > div > div:hover {{ border-color: rgba(124, 111, 240, 0.45) !important; }}
 
         /* Radio -> segmented-control look (equity curve range picker) */
         div[data-testid="stRadio"] > div {{
-            background: rgba(22, 36, 71, 0.5); border-radius: 10px; padding: 3px;
-            border: 1px solid rgba(202, 220, 252, 0.12); display: inline-flex; gap: 2px;
+            background: rgba(16, 21, 42, 0.55); border-radius: 11px; padding: 3px;
+            border: 1px solid rgba(124, 111, 240, 0.18); display: inline-flex; gap: 2px;
         }}
         div[data-testid="stRadio"] label {{
-            border-radius: 7px !important; padding: 0.25rem 0.7rem !important; margin: 0 !important;
+            border-radius: 8px !important; padding: 0.25rem 0.7rem !important; margin: 0 !important;
+            transition: background 0.18s ease !important;
         }}
-        div[data-testid="stRadio"] label:has(input:checked) {{ background: {GREEN}; }}
-        div[data-testid="stRadio"] label:has(input:checked) p {{ color: {NAVY} !important; font-weight: 700 !important; }}
+        div[data-testid="stRadio"] label:has(input:checked) {{ background: {GRADIENT}; }}
+        div[data-testid="stRadio"] label:has(input:checked) p {{ color: #0A0E1E !important; font-weight: 700 !important; }}
         div[data-testid="stRadio"] input {{ display: none; }}
 
         /* Divider */
-        div[data-testid="stSidebar"] hr {{ border-color: rgba(202, 220, 252, 0.12); }}
+        div[data-testid="stSidebar"] hr {{ border-color: rgba(124, 111, 240, 0.16); }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -587,8 +669,8 @@ def render_equity_curve(client: AlpacaClient) -> None:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=ICE, family="Inter"),
-        xaxis=dict(gridcolor="rgba(202, 220, 252, 0.08)", linecolor="rgba(202, 220, 252, 0.15)"),
-        yaxis=dict(gridcolor="rgba(202, 220, 252, 0.08)", linecolor="rgba(202, 220, 252, 0.15)", tickprefix="$"),
+        xaxis=dict(gridcolor="rgba(169, 180, 245, 0.10)", linecolor="rgba(124, 111, 240, 0.25)"),
+        yaxis=dict(gridcolor="rgba(169, 180, 245, 0.10)", linecolor="rgba(124, 111, 240, 0.25)", tickprefix="$"),
         showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -617,8 +699,8 @@ def render_price_chart(client: AlpacaClient, symbol: str) -> None:
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=ICE, family="Inter"),
         margin=dict(l=10, r=10, t=40, b=10),
-        xaxis=dict(gridcolor="rgba(202, 220, 252, 0.10)", linecolor="rgba(202, 220, 252, 0.15)"),
-        yaxis=dict(gridcolor="rgba(202, 220, 252, 0.10)", linecolor="rgba(202, 220, 252, 0.15)"),
+        xaxis=dict(gridcolor="rgba(169, 180, 245, 0.12)", linecolor="rgba(124, 111, 240, 0.25)"),
+        yaxis=dict(gridcolor="rgba(169, 180, 245, 0.12)", linecolor="rgba(124, 111, 240, 0.25)"),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -902,6 +984,17 @@ def render_view_settings(client: AlpacaClient, options_client: OptionsClient) ->
     ])
 
 
+def render_sidebar_brand() -> None:
+    st.sidebar.markdown(
+        '<div class="brand-block">'
+        '<div class="brand-logo-row"><span class="brand-emoji">🦙</span>'
+        '<div><div class="brand-name">Alpaca AI</div>'
+        '<div class="brand-tag">Autonomous Trading Agent</div></div></div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_sidebar_nav(positions_badge_count: int) -> None:
     st.session_state.setdefault("active_view", "Overview")
     first_group = True
@@ -997,6 +1090,7 @@ def main() -> None:
     open_positions_count = len(stock_positions) + len(option_positions)
 
     with st.sidebar:
+        render_sidebar_brand()
         render_sidebar_nav(open_positions_count)
         render_sidebar_run_controls(client, options_client)
 

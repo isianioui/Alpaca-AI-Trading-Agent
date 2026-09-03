@@ -28,13 +28,16 @@ from __future__ import annotations
 import html as _html
 from typing import Optional
 
-NAVY = "#162447"
-NAVY_MID = "#1E2761"
-ICE = "#CADCFC"
-GREEN = "#1FCB8F"
-RED = "#E8615A"
-OFFWHITE = "#F5F7FB"
-MUTED_ON_DARK = "#9FB0D0"
+NAVY = "#0A0E1E"
+NAVY_MID = "#141A34"
+ICE = "#A9B4F5"
+GREEN = "#34D399"
+RED = "#FB7185"
+OFFWHITE = "#F3F5FF"
+MUTED_ON_DARK = "#7C86AC"
+ACCENT = "#7C6FF0"
+ACCENT2 = "#22D3EE"
+GRADIENT = f"linear-gradient(135deg, {ACCENT} 0%, {ACCENT2} 100%)"
 
 FONT_LINKS = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -52,20 +55,24 @@ html, body {{
 .num {{ font-family: 'JetBrains Mono', 'Courier New', monospace; font-variant-numeric: tabular-nums; }}
 ::-webkit-scrollbar {{ width: 8px; height: 8px; }}
 ::-webkit-scrollbar-track {{ background: transparent; }}
-::-webkit-scrollbar-thumb {{ background: rgba(202, 220, 252, 0.25); border-radius: 8px; }}
-::-webkit-scrollbar-thumb:hover {{ background: rgba(202, 220, 252, 0.4); }}
-* {{ scrollbar-width: thin; scrollbar-color: rgba(202, 220, 252, 0.25) transparent; }}
+::-webkit-scrollbar-thumb {{ background: rgba(124, 111, 240, 0.30); border-radius: 8px; }}
+::-webkit-scrollbar-thumb:hover {{ background: rgba(124, 111, 240, 0.5); }}
+* {{ scrollbar-width: thin; scrollbar-color: rgba(124, 111, 240, 0.30) transparent; }}
 
 .grid-motif {{
   background-image:
-    linear-gradient(rgba(202, 220, 252, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(202, 220, 252, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(169, 180, 245, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(169, 180, 245, 0.045) 1px, transparent 1px);
   background-size: 22px 22px;
 }}
 
 @keyframes fadeInUp {{
   from {{ opacity: 0; transform: translateY(8px); }}
   to {{ opacity: 1; transform: translateY(0); }}
+}}
+@keyframes glowPulse {{
+  0%, 100% {{ box-shadow: 0 0 0 rgba(124, 111, 240, 0); }}
+  50% {{ box-shadow: 0 0 14px rgba(124, 111, 240, 0.35); }}
 }}
 .animate-in {{ animation: fadeInUp 0.45s ease-out both; }}
 
@@ -137,7 +144,7 @@ def _doc(body: str, extra_style: str = "", extra_script: str = "") -> str:
 def _empty_state(message: str) -> str:
     return (
         f'<div class="brand-alert animate-in" style="background:{NAVY_MID};'
-        f'border:1px solid rgba(202,220,252,0.16);border-left:3px solid {ICE};'
+        f'border:1px solid rgba(124,111,240,0.18);border-left:3px solid {ICE};'
         f'border-radius:10px;padding:0.9rem 1.1rem;color:{ICE};font-size:0.92rem;">'
         f'{message}</div>'
     )
@@ -149,11 +156,23 @@ def _empty_state(message: str) -> str:
 _STAT_CARD_STYLE = f"""
 .stat-row {{ display: flex; gap: 0.85rem; flex-wrap: wrap; }}
 .stat-card {{
+  position: relative; overflow: hidden;
   flex: 1 1 160px; min-width: 150px;
-  background: linear-gradient(160deg, {NAVY_MID} 0%, rgba(30,39,97,0.75) 100%);
-  border: 1px solid rgba(202, 220, 252, 0.12);
-  border-radius: 14px; padding: 1rem 1.15rem;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  background: linear-gradient(160deg, rgba(20,26,52,0.92) 0%, rgba(14,18,38,0.75) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(124, 111, 240, 0.16);
+  border-radius: 16px; padding: 1rem 1.15rem;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.03);
+  transition: transform 0.25s cubic-bezier(.2,.8,.2,1), box-shadow 0.25s ease, border-color 0.25s ease;
+}}
+.stat-card::before {{
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: {GRADIENT}; opacity: 0.9;
+}}
+.stat-card:hover {{
+  transform: translateY(-3px);
+  border-color: rgba(124, 111, 240, 0.4);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.4), 0 0 0 1px rgba(124, 111, 240, 0.12);
 }}
 .stat-label {{
   font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
@@ -162,10 +181,13 @@ _STAT_CARD_STYLE = f"""
 .stat-value {{ font-size: 1.55rem; font-weight: 700; line-height: 1.15; }}
 .chip-row {{ display: flex; gap: 0.6rem; flex-wrap: wrap; }}
 .chip {{
-  background: rgba(30, 39, 97, 0.6);
-  border: 1px solid rgba(202, 220, 252, 0.10);
-  border-radius: 10px; padding: 0.55rem 1rem; min-width: 108px;
+  position: relative; overflow: hidden;
+  background: rgba(20, 26, 52, 0.65);
+  border: 1px solid rgba(124, 111, 240, 0.14);
+  border-radius: 12px; padding: 0.55rem 1rem; min-width: 108px;
+  transition: transform 0.2s ease, border-color 0.2s ease;
 }}
+.chip:hover {{ transform: translateY(-2px); border-color: rgba(124, 111, 240, 0.35); }}
 .chip .stat-label {{ font-size: 0.64rem; margin-bottom: 2px; }}
 .chip .stat-value {{ font-size: 1.1rem; }}
 """
@@ -214,9 +236,11 @@ _STATUS_STYLE = f"""
 .status-pill {{
   display: inline-flex; align-items: center; gap: 0.45rem;
   font-size: 0.76rem; font-weight: 600; padding: 0.34rem 0.8rem;
-  border-radius: 999px; background: {NAVY_MID};
-  border: 1px solid rgba(202, 220, 252, 0.14); color: {OFFWHITE};
+  border-radius: 999px; background: rgba(20, 26, 52, 0.7);
+  border: 1px solid rgba(124, 111, 240, 0.18); color: {OFFWHITE};
+  transition: border-color 0.2s ease, transform 0.2s ease;
 }}
+.status-pill:hover {{ border-color: rgba(124, 111, 240, 0.4); transform: translateY(-1px); }}
 .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
 .dot.ok {{ background: {GREEN}; }}
 .dot.bad {{ background: {RED}; }}
@@ -226,12 +250,12 @@ _STATUS_STYLE = f"""
   animation: pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite;
 }}
 @keyframes pulse-ring {{
-  0% {{ box-shadow: 0 0 0 0 rgba(31, 203, 143, 0.55); }}
-  70% {{ box-shadow: 0 0 0 7px rgba(31, 203, 143, 0); }}
-  100% {{ box-shadow: 0 0 0 0 rgba(31, 203, 143, 0); }}
+  0% {{ box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }}
+  70% {{ box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }}
+  100% {{ box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }}
 }}
-.status-pill.paper {{ background: rgba(31,203,143,0.12); border-color: rgba(31,203,143,0.4); color: {GREEN}; font-weight: 800; }}
-.status-pill.live-warning {{ background: rgba(232,97,90,0.18); border-color: rgba(232,97,90,0.55); color: {RED}; font-weight: 800; }}
+.status-pill.paper {{ background: rgba(52,211,153,0.12); border-color: rgba(52,211,153,0.4); color: {GREEN}; font-weight: 800; }}
+.status-pill.live-warning {{ background: rgba(251,113,133,0.18); border-color: rgba(251,113,133,0.55); color: {RED}; font-weight: 800; }}
 """
 
 
@@ -264,11 +288,19 @@ def render_status_strip(
 # --------------------------------------------------------------------------- #
 _NARRATIVE_STYLE = f"""
 .narrative-card {{
-  background: linear-gradient(160deg, {NAVY_MID} 0%, rgba(30,39,97,0.75) 100%);
-  border: 1px solid rgba(202, 220, 252, 0.12);
-  border-radius: 14px; padding: 1.1rem 1.3rem;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+  position: relative; overflow: hidden;
+  background: linear-gradient(160deg, rgba(20,26,52,0.92) 0%, rgba(14,18,38,0.75) 100%);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(124, 111, 240, 0.16);
+  border-radius: 16px; padding: 1.1rem 1.3rem;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.03);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }}
+.narrative-card::before {{
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: {GRADIENT}; opacity: 0.9;
+}}
+.narrative-card:hover {{ border-color: rgba(124, 111, 240, 0.35); box-shadow: 0 10px 26px rgba(0,0,0,0.4); }}
 .narrative-top {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.3rem; }}
 .narrative-label {{ font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: {MUTED_ON_DARK}; }}
 .narrative-label.ts {{ font-family: 'JetBrains Mono', monospace; }}
@@ -299,14 +331,15 @@ def render_narrative_card(kind_label: Optional[str], timestamp: Optional[str], n
 # --------------------------------------------------------------------------- #
 _POSITION_STYLE = f"""
 .position-card {{
-  background: {NAVY_MID};
-  border: 1px solid rgba(202, 220, 252, 0.12);
+  background: linear-gradient(160deg, rgba(20,26,52,0.9) 0%, rgba(14,18,38,0.7) 100%);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(124, 111, 240, 0.14);
   border-left: 4px solid {MUTED_ON_DARK};
-  border-radius: 14px; padding: 1rem 1.2rem; margin-bottom: 0.7rem;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.22);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  border-radius: 16px; padding: 1rem 1.2rem; margin-bottom: 0.7rem;
+  box-shadow: 0 3px 14px rgba(0,0,0,0.26);
+  transition: transform 0.22s cubic-bezier(.2,.8,.2,1), box-shadow 0.22s ease, border-color 0.22s ease;
 }}
-.position-card:hover {{ transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.32); }}
+.position-card:hover {{ transform: translateY(-3px); border-color: rgba(124,111,240,0.3); box-shadow: 0 10px 26px rgba(0,0,0,0.36), 0 0 20px rgba(124,111,240,0.10); }}
 .position-card.long {{ border-left-color: {GREEN}; }}
 .position-card.sell {{ border-left-color: {ICE}; }}
 .position-top {{ display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.7rem; }}
@@ -314,17 +347,17 @@ _POSITION_STYLE = f"""
 .position-sub {{ font-size: 0.78rem; color: {MUTED_ON_DARK}; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }}
 .position-badges {{ display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }}
 .position-badge {{ font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.18rem 0.6rem; border-radius: 999px; white-space: nowrap; }}
-.position-badge.long {{ background: rgba(31,203,143,0.15); color: {GREEN}; border: 1px solid rgba(31,203,143,0.4); }}
-.position-badge.sell {{ background: rgba(202,220,252,0.14); color: {ICE}; border: 1px solid rgba(202,220,252,0.4); }}
-.position-badge.strategy {{ background: rgba(30,39,97,0.9); color: {ICE}; border: 1px solid rgba(202,220,252,0.18); }}
+.position-badge.long {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.4); }}
+.position-badge.sell {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
+.position-badge.strategy {{ background: rgba(20,26,52,0.9); color: {ICE}; border: 1px solid rgba(124,111,240,0.2); }}
 .position-stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 0.7rem 0.9rem; }}
 .position-stat-label {{ font-size: 0.63rem; color: {MUTED_ON_DARK}; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }}
 .position-stat-value {{ font-size: 0.94rem; font-weight: 700; }}
 .card-toggle {{
-  margin-top: 0.7rem; font-size: 0.78rem; color: {ICE}; cursor: pointer;
-  user-select: none; opacity: 0.85; transition: opacity 0.15s ease;
+  margin-top: 0.7rem; font-size: 0.78rem; color: {ACCENT2}; cursor: pointer;
+  user-select: none; opacity: 0.85; transition: opacity 0.15s ease, transform 0.15s ease;
 }}
-.card-toggle:hover {{ opacity: 1; }}
+.card-toggle:hover {{ opacity: 1; transform: translateX(2px); }}
 .card-toggle::before {{ content: '\\25B8  '; display: inline-block; transition: transform 0.2s ease; }}
 .card-toggle.open::before {{ transform: rotate(90deg); }}
 .card-detail {{
@@ -465,14 +498,14 @@ def _build_payoff_svg(
 
     parts = [
         f'<line x1="{pad}" y1="{baseline_y:.1f}" x2="{w - pad}" y2="{baseline_y:.1f}" '
-        f'stroke="rgba(202,220,252,0.28)" stroke-width="1" stroke-dasharray="2,2"/>'
+        f'stroke="rgba(169,180,245,0.28)" stroke-width="1" stroke-dasharray="2,2"/>'
     ]
     if len(neg) >= 2:
         poly = [(neg[0][0], baseline_y)] + neg + [(neg[-1][0], baseline_y)]
-        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(232,97,90,0.30)"/>')
+        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(251,113,133,0.30)"/>')
     if len(pos) >= 2:
         poly = [(pos[0][0], baseline_y)] + pos + [(pos[-1][0], baseline_y)]
-        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(31,203,143,0.26)"/>')
+        parts.append(f'<polygon points="{_svg_pts(poly)}" fill="rgba(52,211,153,0.26)"/>')
     parts.append(
         f'<polyline points="{_svg_pts(curve)}" fill="none" stroke="{OFFWHITE}" '
         f'stroke-width="1.5" stroke-linejoin="round"/>'
@@ -507,26 +540,29 @@ _OPT_TABLE_STYLE = f"""
 .opt-head {{
   padding: 0 0.9rem 0.55rem 0.9rem; color: {MUTED_ON_DARK};
   font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
-  border-bottom: 1px solid rgba(202,220,252,0.12); position: sticky; top: 0;
+  border-bottom: 1px solid rgba(124,111,240,0.16); position: sticky; top: 0;
   background: {NAVY}; z-index: 1;
 }}
 .opt-row {{
-  padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 6px;
-  border-left: 3px solid {ICE}; background: rgba(30, 39, 97, 0.42);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  padding: 0.7rem 0.9rem; border-radius: 12px; margin-bottom: 6px;
+  background: rgba(20, 26, 52, 0.55);
+  border: 1px solid rgba(124,111,240,0.10); border-left: 3px solid {ICE};
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  transition: transform 0.18s ease, border-color 0.18s ease;
 }}
+.opt-row:hover {{ transform: translateY(-2px); }}
 .opt-cell.position {{ display: flex; flex-direction: column; gap: 3px; min-width: 0; }}
 .opt-symbol-row {{ display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }}
 .opt-symbol {{ font-weight: 800; color: {OFFWHITE}; font-size: 0.94rem; }}
 .opt-badge {{ font-size: 0.58rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.1rem 0.45rem; border-radius: 999px; white-space: nowrap; }}
-.opt-badge.filled {{ background: rgba(31,203,143,0.15); color: {GREEN}; border: 1px solid rgba(31,203,143,0.4); }}
+.opt-badge.filled {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.4); }}
 .opt-strategy {{ font-size: 0.74rem; color: {MUTED_ON_DARK}; }}
 .opt-note {{ font-size: 0.72rem; color: {ICE}; opacity: 0.9; }}
 .opt-cell.strike {{ display: flex; flex-direction: column; gap: 4px; }}
 .opt-sell-badge {{
   display: inline-block; font-size: 0.56rem; font-weight: 800; letter-spacing: 0.04em;
   text-transform: uppercase; padding: 0.08rem 0.4rem; border-radius: 999px; width: fit-content;
-  background: rgba(202,220,252,0.14); color: {ICE}; border: 1px solid rgba(202,220,252,0.4);
+  background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4);
 }}
 .opt-cell.room {{ display: flex; flex-direction: column; gap: 2px; }}
 .opt-cell.room .pct {{ font-size: 0.7rem; color: {MUTED_ON_DARK}; }}
@@ -534,8 +570,8 @@ _OPT_TABLE_STYLE = f"""
 .opt-cell.expires .date {{ font-size: 0.7rem; color: {MUTED_ON_DARK}; }}
 .opt-cell.num {{ font-weight: 700; }}
 .opt-toggle-row {{
-  padding: 0.3rem 0.9rem 0; cursor: pointer; font-size: 0.74rem; color: {ICE};
-  opacity: 0.85; user-select: none;
+  padding: 0.3rem 0.9rem 0; cursor: pointer; font-size: 0.74rem; color: {ACCENT2};
+  opacity: 0.85; user-select: none; transition: opacity 0.15s ease;
 }}
 .opt-toggle-row:hover {{ opacity: 1; }}
 .opt-toggle-row::before {{ content: '\\25B8  AI reasoning that opened this position'; display: inline-block; }}
@@ -654,24 +690,26 @@ def render_option_positions_table(rows: list[dict]) -> tuple[str, int]:
 # --------------------------------------------------------------------------- #
 _DECISION_STYLE = f"""
 .decision-card {{
-  background: {NAVY_MID}; border-radius: 12px; border: 1px solid rgba(202,220,252,0.10);
+  background: linear-gradient(160deg, rgba(20,26,52,0.9) 0%, rgba(14,18,38,0.7) 100%);
+  backdrop-filter: blur(8px);
+  border-radius: 14px; border: 1px solid rgba(124,111,240,0.12);
   border-left: 4px solid {MUTED_ON_DARK}; padding: 0.85rem 1.1rem 0.75rem 1.1rem;
-  margin-bottom: 0.6rem; box-shadow: 0 3px 10px rgba(0,0,0,0.2);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  margin-bottom: 0.6rem; box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+  transition: transform 0.2s cubic-bezier(.2,.8,.2,1), box-shadow 0.2s ease, border-color 0.2s ease;
 }}
-.decision-card:hover {{ transform: translateY(-2px); box-shadow: 0 7px 18px rgba(0,0,0,0.3); }}
+.decision-card:hover {{ transform: translateY(-2px); border-color: rgba(124,111,240,0.3); box-shadow: 0 9px 22px rgba(0,0,0,0.32), 0 0 18px rgba(124,111,240,0.08); }}
 .decision-card.executed {{ border-left-color: {GREEN}; }}
 .decision-card.blocked {{ border-left-color: {RED}; }}
 .decision-card.approved-dry {{ border-left-color: {ICE}; }}
 .decision-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 0.3rem; }}
 .decision-badge {{ display: inline-block; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.15rem 0.55rem; border-radius: 999px; }}
-.decision-badge.executed {{ background: rgba(31,203,143,0.15); color: {GREEN}; border: 1px solid rgba(31,203,143,0.45); }}
-.decision-badge.blocked {{ background: rgba(232,97,90,0.15); color: {RED}; border: 1px solid rgba(232,97,90,0.45); }}
-.decision-badge.approved-dry {{ background: rgba(202,220,252,0.14); color: {ICE}; border: 1px solid rgba(202,220,252,0.4); }}
+.decision-badge.executed {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.45); }}
+.decision-badge.blocked {{ background: rgba(251,113,133,0.15); color: {RED}; border: 1px solid rgba(251,113,133,0.45); }}
+.decision-badge.approved-dry {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
 .decision-meta {{ font-size: 0.75rem; color: {MUTED_ON_DARK}; font-family: 'JetBrains Mono', monospace; }}
 .decision-header {{ font-size: 1.02rem; font-weight: 800; color: {OFFWHITE}; margin-bottom: 0.15rem; }}
-.decision-quote {{ font-style: italic; color: {ICE}; font-size: 0.87rem; margin-top: 0.5rem; padding-left: 0.65rem; border-left: 2px solid rgba(202,220,252,0.25); opacity: 0.95; }}
-.card-toggle {{ margin-top: 0.6rem; font-size: 0.76rem; color: {ICE}; cursor: pointer; user-select: none; opacity: 0.85; }}
+.decision-quote {{ font-style: italic; color: {ICE}; font-size: 0.87rem; margin-top: 0.5rem; padding-left: 0.65rem; border-left: 2px solid rgba(124,111,240,0.3); opacity: 0.95; }}
+.card-toggle {{ margin-top: 0.6rem; font-size: 0.76rem; color: {ACCENT2}; cursor: pointer; user-select: none; opacity: 0.85; }}
 .card-toggle:hover {{ opacity: 1; }}
 .card-toggle::before {{ content: '\\25B8  '; display: inline-block; transition: transform 0.2s ease; }}
 .card-toggle.open::before {{ transform: rotate(90deg); }}
@@ -747,15 +785,15 @@ _TABLE_STYLE = f"""
 .dec-head {{
   padding: 0 0.9rem 0.5rem 0.9rem; color: {MUTED_ON_DARK};
   font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
-  border-bottom: 1px solid rgba(202,220,252,0.12); position: sticky; top: 0;
+  border-bottom: 1px solid rgba(124,111,240,0.16); position: sticky; top: 0;
   background: {NAVY}; z-index: 1;
 }}
 .dec-row {{
-  padding: 0.55rem 0.9rem; border-radius: 8px; cursor: pointer;
+  padding: 0.55rem 0.9rem; border-radius: 10px; cursor: pointer;
   border-left: 3px solid transparent;
-  transition: background 0.12s ease;
+  transition: background 0.15s ease, transform 0.15s ease;
 }}
-.dec-row:hover {{ background: rgba(202, 220, 252, 0.05); }}
+.dec-row:hover {{ background: rgba(124, 111, 240, 0.06); transform: translateX(2px); }}
 .dec-row.executed {{ border-left-color: {GREEN}; }}
 .dec-row.blocked {{ border-left-color: {RED}; }}
 .dec-row.approved-dry {{ border-left-color: {ICE}; }}
@@ -765,11 +803,11 @@ _TABLE_STYLE = f"""
 .dec-cell.conf {{ font-family: 'JetBrains Mono', monospace; color: {ICE}; }}
 .dec-cell.reasoning {{ color: {ICE}; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
 .dec-badge {{ display: inline-block; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.12rem 0.5rem; border-radius: 999px; white-space: nowrap; }}
-.dec-badge.executed {{ background: rgba(31,203,143,0.15); color: {GREEN}; border: 1px solid rgba(31,203,143,0.45); }}
-.dec-badge.blocked {{ background: rgba(232,97,90,0.15); color: {RED}; border: 1px solid rgba(232,97,90,0.45); }}
-.dec-badge.approved-dry {{ background: rgba(202,220,252,0.14); color: {ICE}; border: 1px solid rgba(202,220,252,0.4); }}
+.dec-badge.executed {{ background: rgba(52,211,153,0.15); color: {GREEN}; border: 1px solid rgba(52,211,153,0.45); }}
+.dec-badge.blocked {{ background: rgba(251,113,133,0.15); color: {RED}; border: 1px solid rgba(251,113,133,0.45); }}
+.dec-badge.approved-dry {{ background: rgba(169,180,245,0.14); color: {ICE}; border: 1px solid rgba(169,180,245,0.4); }}
 .dec-detail {{ max-height: 0; overflow: hidden; transition: max-height 0.3s ease; font-size: 0.83rem; color: {ICE}; line-height: 1.6; margin: 0 0.9rem; }}
-.dec-detail.open {{ max-height: 3000px; padding: 0.6rem 0 0.9rem 0; border-bottom: 1px solid rgba(202,220,252,0.08); }}
+.dec-detail.open {{ max-height: 3000px; padding: 0.6rem 0 0.9rem 0; border-bottom: 1px solid rgba(124,111,240,0.1); }}
 .dec-detail b {{ color: {OFFWHITE}; }}
 .dec-detail pre {{ white-space: pre-wrap; word-break: break-word; background: rgba(0,0,0,0.2); padding: 0.5rem 0.65rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: {ICE}; margin-top: 0.4rem; }}
 .scroll-panel {{ overflow-y: auto; padding-right: 6px; }}
@@ -829,14 +867,17 @@ def render_decision_table(records: list[dict]) -> tuple[str, int]:
 _EXPLAINER_STYLE = f"""
 .explainer-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.9rem; }}
 .explainer-step {{
-  background: {NAVY_MID}; border: 1px solid rgba(202,220,252,0.10); border-radius: 12px;
+  background: linear-gradient(160deg, rgba(20,26,52,0.9) 0%, rgba(14,18,38,0.7) 100%);
+  border: 1px solid rgba(124,111,240,0.14); border-radius: 14px;
   padding: 1.1rem 1.2rem; position: relative; overflow: hidden;
+  transition: transform 0.22s ease, border-color 0.22s ease;
 }}
+.explainer-step:hover {{ transform: translateY(-3px); border-color: rgba(124,111,240,0.35); }}
 .explainer-step::after {{
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, {GREEN}, {ICE});
+  background: {GRADIENT};
 }}
-.step-num {{ font-size: 0.78rem; font-weight: 800; color: {GREEN}; letter-spacing: 0.06em; margin-bottom: 0.4rem; font-family: 'JetBrains Mono', monospace; }}
+.step-num {{ font-size: 0.78rem; font-weight: 800; color: {ACCENT2}; letter-spacing: 0.06em; margin-bottom: 0.4rem; font-family: 'JetBrains Mono', monospace; }}
 .step-title {{ font-size: 0.98rem; font-weight: 800; color: {OFFWHITE}; margin-bottom: 0.45rem; }}
 .step-body {{ font-size: 0.85rem; color: {ICE}; line-height: 1.55; opacity: 0.92; }}
 """
@@ -888,12 +929,13 @@ _FOOTER_STYLE = f"""
 
 _ALERT_STYLE = f"""
 .alert {{
-  border-radius: 10px; padding: 0.8rem 1.05rem; font-size: 0.88rem; line-height: 1.5;
-  border-left: 3px solid {ICE}; background: {NAVY_MID}; color: {ICE};
+  border-radius: 12px; padding: 0.8rem 1.05rem; font-size: 0.88rem; line-height: 1.5;
+  border-left: 3px solid {ICE}; background: rgba(20,26,52,0.7); color: {ICE};
+  border: 1px solid rgba(124,111,240,0.12); border-left: 3px solid {ICE};
 }}
-.alert.error {{ border-left-color: {RED}; background: rgba(232,97,90,0.12); color: {OFFWHITE}; }}
-.alert.success {{ border-left-color: {GREEN}; background: rgba(31,203,143,0.12); color: {OFFWHITE}; }}
-.alert code {{ background: rgba(202,220,252,0.12); padding: 0.05rem 0.35rem; border-radius: 4px; color: {OFFWHITE}; }}
+.alert.error {{ border-left-color: {RED}; background: rgba(251,113,133,0.12); color: {OFFWHITE}; }}
+.alert.success {{ border-left-color: {GREEN}; background: rgba(52,211,153,0.12); color: {OFFWHITE}; }}
+.alert code {{ background: rgba(124,111,240,0.15); padding: 0.05rem 0.35rem; border-radius: 4px; color: {OFFWHITE}; }}
 """
 
 
